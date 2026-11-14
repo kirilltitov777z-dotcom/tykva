@@ -176,7 +176,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private fun onNet(s: Int, j: JSONObject) {
         val type = j.optString("t")
         val id = j.optString("id")
-        if (id.isNotEmpty()) presence["$s:$id"] = System.currentTimeMillis()
+        if (type == "p" && id.isNotEmpty()) presence["$s:$id"] = System.currentTimeMillis()
 
         if (screen != Scr.GAME || s != server) return
         val w = world ?: return

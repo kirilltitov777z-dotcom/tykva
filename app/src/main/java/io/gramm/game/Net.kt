@@ -171,6 +171,7 @@ class Net(private val onMessage: (Int, JSONObject) -> Unit) {
         if (!subacked) throw IOException("no suback")
 
         s.soTimeout = 0
+        raw.soTimeout = 0
     }
 
     private fun connectBody(): ByteArray {
