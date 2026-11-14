@@ -1114,7 +1114,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val top = dp(70f) + insTop
         val gap = dp(8f)
         val avail = h - top - dp(18f)
-        val cardH = min(dp(96f), (avail - gap * 4) / 5f)
+        val cardH = min(dp(96f), (avail - gap * 4) / 5f).coerceAtLeast(dp(58f))
         val left = dp(14f)
         val right = w - dp(14f)
 
@@ -1347,7 +1347,9 @@ class GameView(context: Context, private val store: Store) : View(context) {
 
                 if (paused || dead) {
                     val id = hitHud(x, y)
-                    if (id != null) handleHud(id)
+                    if (id != null && (id == "resume" || id == "exit" || id == "respawn" || id == "dead_exit")) {
+                        handleHud(id)
+                    }
                     return
                 }
 
@@ -1376,7 +1378,16 @@ class GameView(context: Context, private val store: Store) : View(context) {
                     if (pid == rightPointer) updateRight(x, y, w)
                 }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_CANCEL -> {
+                leftPointer = -1
+                rightPointer = -1
+                moveX = 0f
+                moveY = 0f
+                firing = false
+                leftKnob.set(0f, 0f)
+                rightKnob.set(0f, 0f)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 val idx = e.actionIndex
                 val pid = e.getPointerId(idx)
                 if (pid == leftPointer) {
