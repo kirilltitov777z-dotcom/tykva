@@ -24,15 +24,15 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Build signed release APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
 
       - name: Rename
-        run: cp app/build/outputs/apk/debug/app-debug.apk gramm-io.apk
+        run: cp app/build/outputs/apk/release/app-release.apk tykva.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gramm-io-apk
-          path: gramm-io.apk
+          name: tykva-apk
+          path: tykva.apk
           retention-days: 14

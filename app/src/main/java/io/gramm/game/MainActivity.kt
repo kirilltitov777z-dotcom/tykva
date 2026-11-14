@@ -2,8 +2,8 @@ package io.gramm.game
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
@@ -30,16 +30,19 @@ class MainActivity : Activity() {
 
     private lateinit var store: Store
     private var game: GameView? = null
+    private var busy = false
 
-    private val accent = 0xFFC8FF4D.toInt()
-    private val fg = 0xFFF0F8E9.toInt()
-    private val dim = 0xFF91A894.toInt()
-    private val dark = 0xFF0C150F.toInt()
-    private val card = 0xFF13231A.toInt()
-    private val stroke = 0xFF2E4C36.toInt()
+    private val accent = 0xFFFF6B2C.toInt()
+    private val gold = 0xFFFFC24D.toInt()
+    private val fg = 0xFFFFF3E6.toInt()
+    private val dim = 0xFFB9A08F.toInt()
+    private val dark = 0xFF160B08.toInt()
+    private val card = 0xFF1E1214.toInt()
+    private val stroke = 0xFF4A2A2A.toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installCrashHandler()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         if (Build.VERSION.SDK_INT >= 28) {
@@ -49,6 +52,22 @@ class MainActivity : Activity() {
         }
         store = Store(this)
         if (store.user == null) showLogin() else showGame()
+    }
+
+    private fun installCrashHandler() {
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            try {
+                val sw = java.io.StringWriter()
+                e.printStackTrace(java.io.PrintWriter(sw))
+                val i = Intent(this, CrashActivity::class.java)
+                i.putExtra("trace", "ТЫКВА $APP_VERSION\n$sw")
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                startActivity(i)
+            } catch (_: Exception) {
+            }
+            prev?.uncaughtException(t, e)
+        }
     }
 
     private fun dp(v: Float): Int = (v * resources.displayMetrics.density + 0.5f).toInt()
@@ -90,18 +109,18 @@ class MainActivity : Activity() {
 
         val logo = ImageView(this)
         logo.setImageResource(R.mipmap.ic_launcher)
-        val logoLp = LinearLayout.LayoutParams(dp(76f), dp(76f))
+        val logoLp = LinearLayout.LayoutParams(dp(82f), dp(82f))
         logoLp.gravity = Gravity.CENTER_HORIZONTAL
         outer.addView(logo, logoLp)
 
-        val title = label("ГРАММ.io", 40f, fg, true)
+        val title = label("ТЫКВА", 44f, fg, true)
         title.gravity = Gravity.CENTER
-        title.setPadding(0, dp(10f), 0, 0)
+        title.setPadding(0, dp(8f), 0, 0)
         outer.addView(title)
 
-        val sub = label("выживание · онлайн", 13f, accent, false)
+        val sub = label("хэллоуин · выживание · онлайн", 12f, accent, false)
         sub.gravity = Gravity.CENTER
-        sub.setPadding(0, dp(2f), 0, dp(22f))
+        sub.setPadding(0, dp(2f), 0, dp(20f))
         outer.addView(sub)
 
         val box = LinearLayout(this)
@@ -114,8 +133,8 @@ class MainActivity : Activity() {
             setSingleLine(true)
             textSize = 16f
             setTextColor(fg)
-            setHintTextColor(0xFF708675.toInt())
-            setBackground(bg(0xFF0E1A13.toInt(), 0xFF2B4633.toInt(), 13f))
+            setHintTextColor(0xFF8A7065.toInt())
+            setBackground(bg(0xFF160E0B.toInt(), 0xFF4A2E26.toInt(), 13f))
             setPadding(dp(15f), dp(13f), dp(15f), dp(13f))
             imeOptions = EditorInfo.IME_ACTION_NEXT
             inputType = InputType.TYPE_CLASS_TEXT
@@ -127,8 +146,8 @@ class MainActivity : Activity() {
             setSingleLine(true)
             textSize = 16f
             setTextColor(fg)
-            setHintTextColor(0xFF708675.toInt())
-            setBackground(bg(0xFF0E1A13.toInt(), 0xFF2B4633.toInt(), 13f))
+            setHintTextColor(0xFF8A7065.toInt())
+            setBackground(bg(0xFF160E0B.toInt(), 0xFF4A2E26.toInt(), 13f))
             setPadding(dp(15f), dp(13f), dp(15f), dp(13f))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             imeOptions = EditorInfo.IME_ACTION_DONE
@@ -137,11 +156,17 @@ class MainActivity : Activity() {
         passLp.topMargin = dp(10f)
         box.addView(pass, passLp)
 
-        val error = label("", 11f, 0xFFFF6B6B.toInt(), false)
+        val error = label("", 11f, 0xFFFF7A6B.toInt(), false)
         error.visibility = View.GONE
         val errLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         errLp.topMargin = dp(8f)
         box.addView(error, errLp)
+
+        val status = label("", 10.5f, gold, false)
+        status.visibility = View.GONE
+        val stLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        stLp.topMargin = dp(6f)
+        box.addView(status, stLp)
 
         val signIn = TextView(this).apply {
             text = "ВОЙТИ"
@@ -163,7 +188,7 @@ class MainActivity : Activity() {
             setTextColor(fg)
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             gravity = Gravity.CENTER
-            background = bg(0xFF1A2E21.toInt(), stroke, 15f)
+            background = bg(0xFF2A1A16.toInt(), stroke, 15f)
             isClickable = true
             isFocusable = true
         }
@@ -171,18 +196,64 @@ class MainActivity : Activity() {
         crLp.topMargin = dp(9f)
         box.addView(create, crLp)
 
+        fun setBusy(b: Boolean, text: String = "") {
+            busy = b
+            signIn.isEnabled = !b
+            create.isEnabled = !b
+            signIn.alpha = if (b) 0.55f else 1f
+            create.alpha = if (b) 0.55f else 1f
+            if (text.isNotEmpty()) {
+                status.text = text
+                status.visibility = View.VISIBLE
+            } else {
+                status.visibility = View.GONE
+            }
+        }
+
+        fun fail(msg: String) {
+            setBusy(false)
+            error.text = msg
+            error.visibility = View.VISIBLE
+        }
+
+        fun success(name: String, profile: org.json.JSONObject?) {
+            store.setUser(name)
+            if (profile != null) {
+                store.applyProfile(profile)
+            } else if (store.user != null) {
+                Cloud.pushProfile(name, store.exportProfile())
+            }
+            setBusy(false)
+            showGame()
+        }
+
         fun attempt(make: Boolean) {
-            val err = if (make) {
-                store.createAccount(login.text.toString(), pass.text.toString())
-            } else {
-                store.signIn(login.text.toString(), pass.text.toString())
+            if (busy) return
+            val name = login.text.toString().trim()
+            val password = pass.text.toString()
+            Pass.validateName(name)?.let { return fail(it) }
+            Pass.validatePass(password)?.let { return fail(it) }
+            error.visibility = View.GONE
+            setBusy(true, if (make) "Создаём аккаунт в облаке…" else "Входим в облако…")
+            val cb: (Cloud.Auth) -> Unit = { auth ->
+                runOnUiThread {
+                    if (auth.error == null) {
+                        success(name, auth.profile)
+                    } else if (auth.network) {
+                        // облако недоступно — не выбрасываем игрока, входим локально
+                        val local = if (make) store.createAccount(name, password) else store.signIn(name, password)
+                        if (local == null) {
+                            status.text = "Облако недоступно · локальный вход"
+                            success(name, null)
+                        } else {
+                            fail("${auth.error}. Локально: $local")
+                        }
+                    } else {
+                        fail(auth.error ?: "Ошибка входа")
+                    }
+                }
             }
-            if (err == null) {
-                showGame()
-            } else {
-                error.text = err
-                error.visibility = View.VISIBLE
-            }
+            if (make) Cloud.register(name, password, cb) else Cloud.login(name, password, cb)
         }
 
         signIn.setOnClickListener { attempt(false) }
@@ -194,7 +265,10 @@ class MainActivity : Activity() {
             } else false
         }
 
-        val note = label("Аккаунт хранится на этом телефоне.\nОнлайн — через публичный MQTT-брокер.", 10f, dim, false)
+        val note = label(
+            "Аккаунт в облаке: создал на одном телефоне —\nзаходи с другого. Пароль хранится только хэшем.",
+            10f, dim, false
+        )
         note.gravity = Gravity.CENTER
         note.setPadding(0, dp(12f), 0, 0)
         note.setLineSpacing(0f, 1.25f)
@@ -203,7 +277,7 @@ class MainActivity : Activity() {
         val boxLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         outer.addView(box, boxLp)
 
-        val footer = label("ГРАММ.io v1.0 · сделано на телефоне", 9f, 0xFF61786A.toInt(), false)
+        val footer = label("ТЫКВА $APP_VERSION · хэллоуин-сезон · сделано на телефоне", 9f, 0xFF7A5F55.toInt(), false)
         footer.gravity = Gravity.CENTER
         footer.setPadding(0, dp(18f), 0, 0)
         outer.addView(footer)
@@ -216,7 +290,11 @@ class MainActivity : Activity() {
 
     private fun showGame() {
         val gv = GameView(this, store)
-        gv.onLogout = { showLogin() }
+        gv.onLogout = {
+            store.user?.let { Cloud.pushProfile(it, store.exportProfile()) }
+            store.signOut()
+            showLogin()
+        }
         game = gv
         setContentView(gv)
         hideBars()
@@ -251,7 +329,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         if (game != null) {
             if (game!!.handleBack()) return
-            game!!.destroy()
+            game?.destroy()
             game = null
         }
         @Suppress("DEPRECATION")
@@ -259,6 +337,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        store.user?.let { Cloud.pushProfile(it, store.exportProfile()) }
         game?.destroy()
         super.onDestroy()
     }
@@ -271,7 +350,7 @@ class MainActivity : Activity() {
             val h = height.toFloat()
             p.shader = LinearGradient(
                 0f, 0f, 0f, h,
-                intArrayOf(0xFF0A1511.toInt(), 0xFF11281C.toInt(), 0xFF08110D.toInt()),
+                intArrayOf(0xFF120A0A.toInt(), 0xFF2A1010.toInt(), 0xFF0B0606.toInt()),
                 null, Shader.TileMode.CLAMP
             )
             c.drawRect(0f, 0f, w, h, p)
@@ -291,10 +370,10 @@ class MainActivity : Activity() {
                 y += 44f * resources.displayMetrics.density
             }
             p.style = Paint.Style.FILL
-            p.color = 0x14C8FF4D
+            p.color = 0x22FF5A1F
             c.drawCircle(w * 0.10f, h * 0.16f, 130f, p)
-            p.color = 0x10C8FF4D
-            c.drawCircle(w * 0.92f, h * 0.78f, 170f, p)
+            p.color = 0x18FF8A2A
+            c.drawCircle(w * 0.92f, h * 0.78f, 190f, p)
 
             p.color = 0x33000000
             val path = Path()

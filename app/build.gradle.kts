@@ -8,16 +8,32 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "io.gramm.game"
-        minSdk = 24
+        applicationId = "ru.tykva.game"
+        minSdk = 21
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
+    }
+
+    signingConfigs {
+        create("stable") {
+            storeFile = file("../keystore/tykva.jks")
+            storePassword = "tykva2026"
+            keyAlias = "tykva"
+            keyPassword = "tykva2026"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("stable")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("stable")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

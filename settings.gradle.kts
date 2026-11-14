@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GrammIO"
+rootProject.name = "Tykva"
 include(":app")

@@ -26,16 +26,23 @@ class P(
     val isMe: Boolean
 ) {
     var hp = 100f
+    var armor = 0f
     var alive = true
     var aim = 0f
     var angle = 0f
-    var weapon = 0
+    var weapon = 4
+    var weaponSkin = 0
+    var toolLevel = 0
     var kills = 0
     var coins = 0
     var wood = 0
     var stone = 0
-    var ammoT = 45
-    var ammoR = 3
+    var iron = 0
+    var sulfur = 0
+    var ammoT = 60
+    var ammoP = 12
+    var ammoR = 2
+    var grenades = 2
     var meds = 1
     var fireCd = 0f
     var healCd = 0f
@@ -67,6 +74,7 @@ class Bullet(
     var dmg: Float,
     val owner: String,
     val rocket: Boolean,
+    val grenade: Boolean,
     var life: Float
 )
 
@@ -100,17 +108,28 @@ class World(
         const val T_BARREL = 4
         const val T_WALL = 5
         const val T_BENCH = 6
+        const val T_PUMPKIN = 7
 
-        const val SLOT_MED = 5
+        const val SLOT_SPEAR = 1
+        const val SLOT_AXE = 2
+        const val SLOT_PICK = 3
+        const val SLOT_GUN = 4
+        const val SLOT_REVOLVER = 5
+        const val SLOT_ROCKET = 6
+        const val SLOT_TNT = 7
+        const val SLOT_MED = 8
 
         data class Wpn(val name: String, val kind: Int, val dmg: Float, val rate: Float, val speed: Float, val range: Float)
 
         val WEAPONS = listOf(
             Wpn("Кулаки", 0, 7f, 0.38f, 0f, 68f),
-            Wpn("Топор", 0, 16f, 0.50f, 0f, 82f),
-            Wpn("Кирка", 0, 13f, 0.50f, 0f, 82f),
+            Wpn("Копьё", 0, 24f, 0.55f, 0f, 112f),
+            Wpn("Топор", 0, 18f, 0.50f, 0f, 84f),
+            Wpn("Кирка", 0, 14f, 0.50f, 0f, 84f),
             Wpn("Томпсон", 1, 13f, 0.11f, 1180f, 720f),
+            Wpn("Револьвер", 1, 44f, 0.55f, 1600f, 760f),
             Wpn("Базука", 2, 55f, 1.55f, 660f, 900f),
+            Wpn("Взрывчатка", 4, 80f, 1.35f, 500f, 560f),
             Wpn("Аптечка", 3, 0f, 1.10f, 0f, 0f)
         )
     }
@@ -118,7 +137,7 @@ class World(
     interface Events {
         fun remoteDamage(targetId: String, dmg: Float, byName: String)
         fun objectGone(id: Int)
-        fun wallBuilt(e: Ent)
+        fun built(e: Ent)
         fun playerDied(victim: P, killer: P?, killerId: String, killerName: String)
         fun shot(owner: P)
         fun coinsEarned(p: P, n: Int)
@@ -150,6 +169,7 @@ class World(
     private fun rockHp() = 75f
     private fun crateHp() = 26f
     private fun barrelHp() = 20f
+    private fun pumpkinHp() = 34f
 
     private fun radiusOf(t: Int) = when (t) {
         T_TREE -> 34f
@@ -159,6 +179,7 @@ class World(
         T_BARREL -> 23f
         T_WALL -> 34f
         T_BENCH -> 34f
+        T_PUMPKIN -> 27f
         else -> 24f
     }
 
@@ -169,6 +190,7 @@ class World(
         T_BARREL -> barrelHp()
         T_WALL -> 240f
         T_BENCH -> 200f
+        T_PUMPKIN -> pumpkinHp()
         else -> 10f
     }
 
@@ -243,6 +265,18 @@ class World(
             barrels++
         }
 
+        // хэллоуинские тыквы по всему лесу
+        var pumpkins = 0
+        guard = 0
+        while (pumpkins < 38 && guard < 4000) {
+            guard++
+            val x = 100f + rnd.nextFloat() * (W - 200f)
+            val y = 100f + rnd.nextFloat() * (H - 200f)
+            if (overlaps(x, y, 18f)) continue
+            add(T_PUMPKIN, x, y)
+            pumpkins++
+        }
+
         var bases = 0
         guard = 0
         while (bases < 6 && guard < 400) {
@@ -264,12 +298,15 @@ class World(
             add(T_CRATE, bx - 56f, by + 40f)
             add(T_CRATE, bx + 58f, by + 38f)
             add(T_BARREL, bx + 85f, by - 25f)
+            add(T_PUMPKIN, bx - 92f, by - 20f)
+            add(T_PUMPKIN, bx + 92f, by + 20f)
         }
 
-        // стартовый ящик недалеко от центра
         add(T_CRATE, W / 2 + 210f, H / 2 + 60f)
         add(T_CRATE, W / 2 - 170f, H / 2 - 120f)
         add(T_TREE, W / 2 + 280f, H / 2 - 140f)
+        add(T_PUMPKIN, W / 2 + 150f, H / 2 + 170f)
+        add(T_PUMPKIN, W / 2 - 220f, H / 2 + 40f)
     }
 
     private fun solid(t: Int): Boolean = when (t) {
@@ -285,25 +322,34 @@ class World(
 
     private fun spawnLocal() {
         me = P("u" + UUID.randomUUID().toString().replace("-", "").take(12), playerName, playerSkin, W / 2f, H / 2f, false, true)
-        me.weapon = 3
+        me.weapon = SLOT_GUN
         me.aim = 0f
         players[me.id] = me
         placeFree(me, W / 2f, H / 2f, 0f)
     }
 
     private fun botName(): String {
-        val names = arrayOf("Егерь", "Тень", "Клещ", "Барсук", "Ворон", "Сойка", "Мох", "Пень", "Лось", "Филин")
+        val names = arrayOf("Игорек", "Тыквач", "Соня", "Клещ", "Барсук", "Ворон", "Сойка", "Мох", "Пень", "Лось", "Филин", "Культя")
         return names[rnd.nextInt(names.size)] + (100 + rnd.nextInt(899))
     }
 
     private fun spawnBot() {
         val b = P("bot_" + nextObjId++ + "_" + rnd.nextInt(9999), botName(), rnd.nextInt(SKINS.size), W / 2f, H / 2f, true, false)
-        b.weapon = if (rnd.nextInt(100) < 22) 4 else 3
+        b.weapon = when {
+            rnd.nextInt(100) < 12 -> SLOT_REVOLVER
+            rnd.nextInt(100) < 22 -> SLOT_TNT
+            rnd.nextInt(100) < 35 -> SLOT_ROCKET
+            else -> SLOT_GUN
+        }
         b.ammoT = 99_999
+        b.ammoP = 99_999
         b.ammoR = 99_999
-        b.meds = 2
+        b.grenades = 99_999
+        b.meds = 3
         b.coins = rnd.nextInt(120)
         b.kills = rnd.nextInt(4)
+        b.toolLevel = rnd.nextInt(3)
+        b.weaponSkin = rnd.nextInt(WEAPON_SKINS.size)
         placeFree(b, W / 2f, H / 2f, 380f)
         b.targetX = b.x
         b.targetY = b.y
@@ -349,14 +395,19 @@ class World(
     fun respawnMe() {
         me.alive = true
         me.hp = 100f
+        me.armor = 0f
         me.deadT = 0f
         me.kills = 0
-        me.weapon = 3
+        me.weapon = SLOT_GUN
         me.ammoT = 30
+        me.ammoP = 12
         me.ammoR = 1
+        me.grenades = 1
         me.meds = 1
         me.wood = 0
         me.stone = 0
+        me.iron = 0
+        me.sulfur = 0
         me.angryReset()
         placeFree(me, W / 2f, H / 2f, 0f)
     }
@@ -379,7 +430,13 @@ class World(
         aim: Float,
         weapon: Int,
         kills: Int,
-        coins: Int
+        coins: Int,
+        iron: Int = 0,
+        sulfur: Int = 0,
+        armor: Float = 0f,
+        toolLevel: Int = 0,
+        weaponSkin: Int = 0,
+        grenades: Int = 0
     ) {
         if (id == me.id) return
         var p = players[id]
@@ -399,6 +456,12 @@ class World(
         p.weapon = weapon
         p.kills = kills
         p.coins = coins
+        p.iron = iron
+        p.sulfur = sulfur
+        p.armor = armor
+        p.toolLevel = toolLevel
+        p.weaponSkin = weaponSkin
+        p.grenades = grenades
         p.lastSeen = System.currentTimeMillis()
         p.alive = hp > 0f
         if (p.alive) p.deadT = 0f
@@ -414,9 +477,10 @@ class World(
         }
     }
 
-    fun addRemoteWall(id: Int, x: Float, y: Float, hp: Float) {
+    fun addRemoteBuild(id: Int, x: Float, y: Float, hp: Float, type: Int) {
         for (e in objects) if (e.id == id) return
-        val e = Ent(id, T_WALL, x, y, hp.coerceAtLeast(1f), 240f, 32f)
+        val t = if (type in 0..7) type else T_WALL
+        val e = Ent(id, t, x, y, hp.coerceAtLeast(1f), hpOf(t), radiusOf(t))
         objects.add(e)
     }
 
@@ -547,7 +611,11 @@ class World(
             val b = it.next()
             b.life -= dt
             var remove = false
-            if (b.life <= 0f) remove = true
+            var boom = false
+            if (b.life <= 0f) {
+                remove = true
+                boom = b.rocket || b.grenade
+            }
 
             if (!remove) {
                 val speed = sqrt(b.vx * b.vx + b.vy * b.vy)
@@ -557,7 +625,6 @@ class World(
                     b.x += b.vx * stepDt
                     b.y += b.vy * stepDt
 
-                    // объекты
                     var hitObj: Ent? = null
                     for (e in objects) {
                         if (e.dead || !blocksBullets(e.type)) continue
@@ -571,8 +638,8 @@ class World(
                     }
                     if (hitObj != null) {
                         val owner = players[b.owner]
-                        if (b.rocket) {
-                            explode(b.x, b.y, owner, if (owner != null) b.dmg else 48f)
+                        if (b.rocket || b.grenade) {
+                            explode(b.x, b.y, owner, b.dmg)
                         } else {
                             damageEnt(hitObj, b.dmg, owner)
                         }
@@ -580,12 +647,10 @@ class World(
                         break
                     }
 
-                    // игроки
                     var hitP: P? = null
                     for (p in players.values) {
                         if (p.id == b.owner || !p.alive) continue
                         if (!p.isMe && !p.isBot) {
-                            // в чужих не стреляем локально — им отправим урон
                             val owner = players[b.owner]
                             if (owner?.isMe != true) continue
                         }
@@ -598,7 +663,7 @@ class World(
                     }
                     if (hitP != null) {
                         val owner = players[b.owner]
-                        if (b.rocket) {
+                        if (b.rocket || b.grenade) {
                             explode(b.x, b.y, owner, b.dmg)
                         } else if (!hitP.isMe && !hitP.isBot) {
                             events.remoteDamage(hitP.id, b.dmg * (if (owner?.isBot == true) 0.55f else 1f), owner?.name ?: "?")
@@ -615,7 +680,10 @@ class World(
                     }
                 }
             }
-            if (remove) it.remove()
+            if (remove) {
+                if (boom) explode(b.x, b.y, players[b.owner], b.dmg)
+                it.remove()
+            }
         }
     }
 
@@ -634,6 +702,7 @@ class World(
             T_ROCK -> burst(e.x, e.y, 0xFF9AA09A.toInt(), 12)
             T_CRATE -> burst(e.x, e.y, 0xFFB98A55.toInt(), 14)
             T_BARREL -> burst(e.x, e.y, 0xFFD84444.toInt(), 16)
+            T_PUMPKIN -> burst(e.x, e.y, 0xFFFF8A2A.toInt(), 16)
             T_WALL, T_BENCH -> burst(e.x, e.y, 0xFFB98A55.toInt(), 14)
             else -> {}
         }
@@ -652,26 +721,57 @@ class World(
             T_ROCK -> {
                 by.stone += 8
                 if (by.isMe) pop(e.x, e.y - 20f, "+8 камня", 0xFFBEC5C0.toInt())
+                if (rnd.nextFloat() < 0.35f) {
+                    by.iron += 1
+                    if (by.isMe) pop(e.x, e.y - 40f, "+1 железо", 0xFFD8DEE3.toInt())
+                }
+                if (rnd.nextFloat() < 0.22f) {
+                    by.sulfur += 1
+                    if (by.isMe) pop(e.x, e.y - 58f, "+1 сера", 0xFFE4E05B.toInt())
+                }
             }
             T_CRATE -> {
                 val gain = 18 + rnd.nextInt(30)
                 by.coins += gain
-                by.kills += 0
                 events.coinsEarned(by, gain)
                 if (by.isMe) pop(e.x, e.y - 20f, "+$gain монет", 0xFFFFD95C.toInt())
-                when {
-                    rnd.nextFloat() < 0.5f -> {
-                        by.ammoT += 20
-                        if (by.isMe) pop(e.x, e.y - 44f, "+20 патронов", 0xFFFFC65A.toInt())
-                    }
-                    rnd.nextFloat() < 0.4f -> {
-                        by.meds++
-                        if (by.isMe) pop(e.x, e.y - 44f, "+1 аптечка", 0xFF8CE0A0.toInt())
-                    }
-                    rnd.nextFloat() < 0.3f -> {
-                        by.ammoR++
-                        if (by.isMe) pop(e.x, e.y - 44f, "+1 ракета", 0xFFFFB06A.toInt())
-                    }
+                if (rnd.nextFloat() < 0.55f) {
+                    by.ammoT += 20
+                    if (by.isMe) pop(e.x, e.y - 40f, "+20 патронов", 0xFFFFC65A.toInt())
+                }
+                if (rnd.nextFloat() < 0.35f) {
+                    by.ammoP += 6
+                    if (by.isMe) pop(e.x, e.y - 58f, "+6 револьвер", 0xFFFFB27A.toInt())
+                }
+                if (rnd.nextFloat() < 0.30f) {
+                    by.meds++
+                    if (by.isMe) pop(e.x, e.y - 76f, "+1 аптечка", 0xFF8CE0A0.toInt())
+                }
+                if (rnd.nextFloat() < 0.24f) {
+                    by.ammoR++
+                    if (by.isMe) pop(e.x, e.y - 94f, "+1 ракета", 0xFFFFB06A.toInt())
+                }
+                if (rnd.nextFloat() < 0.25f) {
+                    by.grenades++
+                    if (by.isMe) pop(e.x, e.y - 112f, "+1 взрывчатка", 0xFFFF7A3C.toInt())
+                }
+                if (rnd.nextFloat() < 0.20f) {
+                    by.iron += 1
+                    if (by.isMe) pop(e.x, e.y - 130f, "+1 железо", 0xFFD8DEE3.toInt())
+                }
+                if (rnd.nextFloat() < 0.18f) {
+                    by.sulfur += 1
+                    if (by.isMe) pop(e.x, e.y - 148f, "+1 сера", 0xFFE4E05B.toInt())
+                }
+            }
+            T_PUMPKIN -> {
+                val gain = 8 + rnd.nextInt(14)
+                by.coins += gain
+                events.coinsEarned(by, gain)
+                if (by.isMe) pop(e.x, e.y - 20f, "+$gain монет", 0xFFFFB347.toInt())
+                if (rnd.nextFloat() < 0.45f) {
+                    by.sulfur += 1
+                    if (by.isMe) pop(e.x, e.y - 40f, "+1 сера", 0xFFE4E05B.toInt())
                 }
             }
             T_BARREL -> {
@@ -734,6 +834,11 @@ class World(
 
     // ------------------------------------------------------------- стрельба
 
+    private fun toolDamage(p: P, slot: Int): Float {
+        if (slot != SLOT_SPEAR && slot != SLOT_AXE && slot != SLOT_PICK) return 1f
+        return 1f + p.toolLevel * 0.35f
+    }
+
     fun fire(p: P) {
         if (!p.alive) return
         val wi = p.weapon.coerceIn(0, WEAPONS.size - 1)
@@ -741,15 +846,21 @@ class World(
         when (w.kind) {
             0 -> {
                 if (p.fireCd > 0f) return
-                p.fireCd = w.rate
+                p.fireCd = w.rate / (1f + p.toolLevel * 0.10f)
                 events.shot(p)
-                melee(p, w)
+                melee(p, w, toolDamage(p, wi))
             }
             1 -> {
-                if (p.fireCd > 0f || p.ammoT <= 0) return
+                if (p.fireCd > 0f) return
+                if (wi == SLOT_REVOLVER) {
+                    if (p.ammoP <= 0) return
+                    p.ammoP--
+                } else {
+                    if (p.ammoT <= 0) return
+                    p.ammoT--
+                }
                 p.fireCd = w.rate
-                p.ammoT--
-                spawnBullet(p, w, 0.055f)
+                spawnBullet(p, w, if (wi == SLOT_REVOLVER) 0.02f else 0.055f)
                 events.shot(p)
             }
             2 -> {
@@ -757,6 +868,13 @@ class World(
                 p.fireCd = w.rate
                 p.ammoR--
                 spawnRocket(p, w)
+                events.shot(p)
+            }
+            4 -> {
+                if (p.fireCd > 0f || p.grenades <= 0) return
+                p.fireCd = w.rate
+                p.grenades--
+                spawnGrenade(p, w)
                 events.shot(p)
             }
             3 -> {
@@ -776,17 +894,27 @@ class World(
         val a = p.aim + (rnd.nextFloat() - 0.5f) * spread * 2f
         val sx = p.x + cos(a) * 30f
         val sy = p.y + sin(a) * 30f
-        bullets.add(Bullet(sx, sy, cos(a) * w.speed, sin(a) * w.speed, w.dmg, p.id, false, 1.1f))
+        bullets.add(Bullet(sx, sy, cos(a) * w.speed, sin(a) * w.speed, w.dmg, p.id, false, false, 1.1f))
         muzzle(p)
+        if (w.dmg > 30f) shake = max(shake, 2f)
     }
 
     private fun spawnRocket(p: P, w: Wpn) {
         val a = p.aim
         val sx = p.x + cos(a) * 32f
         val sy = p.y + sin(a) * 32f
-        bullets.add(Bullet(sx, sy, cos(a) * w.speed, sin(a) * w.speed, w.dmg, p.id, true, 1.6f))
+        bullets.add(Bullet(sx, sy, cos(a) * w.speed, sin(a) * w.speed, w.dmg, p.id, true, false, 1.6f))
         muzzle(p)
         shake = max(shake, 3f)
+    }
+
+    private fun spawnGrenade(p: P, w: Wpn) {
+        val a = p.aim
+        val sx = p.x + cos(a) * 28f
+        val sy = p.y + sin(a) * 28f
+        bullets.add(Bullet(sx, sy, cos(a) * w.speed, sin(a) * w.speed, w.dmg, p.id, true, true, 0.95f))
+        muzzle(p)
+        shake = max(shake, 2f)
     }
 
     private fun muzzle(p: P) {
@@ -803,7 +931,7 @@ class World(
         }
     }
 
-    private fun melee(p: P, w: Wpn) {
+    private fun melee(p: P, w: Wpn, dmgMult: Float) {
         var bestE: Ent? = null
         var bestEd = Float.MAX_VALUE
         for (e in objects) {
@@ -838,9 +966,9 @@ class World(
 
         if (bestP != null && (bestE == null || bestPd < bestEd)) {
             if (!bestP.isMe && !bestP.isBot) {
-                events.remoteDamage(bestP.id, w.dmg, p.name)
+                events.remoteDamage(bestP.id, w.dmg * dmgMult, p.name)
             } else {
-                damagePlayer(bestP, w.dmg, p)
+                damagePlayer(bestP, w.dmg * dmgMult, p)
             }
             burst(bestP.x, bestP.y, 0xFFD84444.toInt(), 5)
             return
@@ -848,51 +976,70 @@ class World(
 
         val e = bestE ?: return
         val mult = harvestMultiplier(p, e)
-        var dmg = w.dmg * mult
+        var dmg = w.dmg * dmgMult * mult
         if (e.type == T_CRATE) dmg *= 1.5f
+        if (e.type == T_PUMPKIN) dmg *= 1.6f
         damageEnt(e, dmg, p)
 
         if (p.isMe) {
             when {
-                e.type == T_TREE && p.weapon == 1 -> {
+                e.type == T_TREE && p.weapon == SLOT_AXE -> {
                     p.wood += 2
                     pop(e.x, e.y - 18f, "+2", 0xFFC9E88A.toInt())
                 }
-                e.type == T_ROCK && p.weapon == 2 -> {
+                e.type == T_ROCK && p.weapon == SLOT_PICK -> {
                     p.stone += 2
+                    if (rnd.nextFloat() < 0.10f) p.iron += 1
                     pop(e.x, e.y - 18f, "+2", 0xFFBEC5C0.toInt())
                 }
                 (e.type == T_TREE || e.type == T_ROCK) && p.weapon == 0 -> {
                     if (e.type == T_TREE) p.wood += 1 else p.stone += 1
+                }
+                e.type == T_PUMPKIN && (p.weapon == SLOT_AXE || p.weapon == SLOT_PICK || p.weapon == SLOT_SPEAR) -> {
+                    p.sulfur += 1
+                    pop(e.x, e.y - 18f, "+1 сера", 0xFFE4E05B.toInt())
                 }
             }
         }
         burst(e.x, e.y, when (e.type) {
             T_TREE -> 0xFF7A5230.toInt()
             T_ROCK -> 0xFF9AA09A.toInt()
+            T_PUMPKIN -> 0xFFFF8A2A.toInt()
             else -> 0xFFB98A55.toInt()
         }, 4)
     }
 
-    private fun harvestMultiplier(p: P, e: Ent): Float = when {
-        e.type == T_TREE && p.weapon == 1 -> 2.2f
-        e.type == T_ROCK && p.weapon == 2 -> 2.2f
-        e.type == T_TREE && p.weapon == 2 -> 0.35f
-        e.type == T_ROCK && p.weapon == 1 -> 0.45f
-        p.weapon == 0 -> 0.55f
-        else -> 1f
+    private fun harvestMultiplier(p: P, e: Ent): Float {
+        val bonus = 1f + p.toolLevel * 0.25f
+        return when {
+            e.type == T_TREE && p.weapon == SLOT_AXE -> 2.2f * bonus
+            e.type == T_ROCK && p.weapon == SLOT_PICK -> 2.2f * bonus
+            e.type == T_TREE && p.weapon == SLOT_PICK -> 0.35f
+            e.type == T_ROCK && p.weapon == SLOT_AXE -> 0.45f
+            e.type == T_PUMPKIN && (p.weapon == SLOT_AXE || p.weapon == SLOT_PICK) -> 1.8f * bonus
+            p.weapon == SLOT_SPEAR -> 0.9f
+            p.weapon == 0 -> 0.55f
+            else -> 1f
+        }
     }
 
     private fun damagePlayer(p: P, dmg: Float, attacker: P?) {
         if (!p.alive) return
-        p.hp -= dmg
+        var real = dmg
+        if (p.armor > 0f) {
+            val absorbed = min(p.armor, real * 0.5f)
+            p.armor = max(0f, p.armor - absorbed)
+            real -= absorbed
+            pop(p.x + (rnd.nextFloat() - 0.5f) * 20f, p.y - 62f, "броня", 0xFF9FD8FF.toInt())
+        }
+        p.hp -= real
         p.hurt = 0.22f
         p.flash = 0.14f
         if (attacker != null) {
             p.attackerId = attacker.id
             p.attackerName = attacker.name
         }
-        pop(p.x + (rnd.nextFloat() - 0.5f) * 26f, p.y - 46f, "-" + dmg.toInt(), 0xFFFF6655.toInt())
+        pop(p.x + (rnd.nextFloat() - 0.5f) * 26f, p.y - 46f, "-" + real.toInt(), 0xFFFF6655.toInt())
         burst(p.x, p.y, 0xFFD84444.toInt(), 5)
         if (p.hp <= 0f) {
             p.hp = 0f
@@ -913,8 +1060,7 @@ class World(
                 b.alive = true
                 b.hp = 100f
                 b.deadT = 0f
-                b.weapon = if (rnd.nextInt(100) < 22) 4 else 3
-                b.kills = b.kills
+                b.weapon = if (rnd.nextInt(100) < 22) SLOT_REVOLVER else SLOT_GUN
                 placeFree(b, W / 2f, H / 2f, 300f)
             }
             return
@@ -954,7 +1100,7 @@ class World(
             val side = if (b.stuck > 0.5f) 0f else 0.6f
             b.mx = cos(aimAt) * advance + cos(aimAt + 1.5708f) * side
             b.my = sin(aimAt) * advance + sin(aimAt + 1.5708f) * side
-            b.weapon = if (b.weapon == 4) 4 else 3
+            if (b.weapon == SLOT_TNT || b.weapon == SLOT_ROCKET) b.weapon = SLOT_GUN
             if (b.botCd <= 0f) {
                 b.botCd = 0.26f + rnd.nextFloat() * 0.3f
                 fire(b)
@@ -963,12 +1109,11 @@ class World(
             b.think -= dt
             if (b.think <= 0f) {
                 b.think = 2.5f + rnd.nextFloat() * 4f
-                // иногда идём к ближайшему дереву/камню
                 var node: Ent? = null
                 var nd = 380f
                 for (e in objects) {
                     if (e.dead) continue
-                    if (e.type != T_TREE && e.type != T_ROCK && e.type != T_CRATE) continue
+                    if (e.type != T_TREE && e.type != T_ROCK && e.type != T_CRATE && e.type != T_PUMPKIN) continue
                     val dx = e.x - b.x
                     val dy = e.y - b.y
                     val d = sqrt(dx * dx + dy * dy)
@@ -998,7 +1143,6 @@ class World(
                 b.mx = cos(a)
                 b.my = sin(a)
             }
-            // боты тоже ломают ящики и стреляют по деревьям
             if (b.botCd <= 0f && rnd.nextFloat() < 0.012f) {
                 b.botCd = 0.5f
                 fire(b)
@@ -1040,22 +1184,38 @@ class World(
         return best
     }
 
-    fun wallAction(): String {
-        if (me.wood < 12) return "Нужно 12 дерева"
-        val bx = me.x + cos(me.aim) * 82f
-        val by = me.y + sin(me.aim) * 82f
-        if (bx < 70f || by < 70f || bx > W - 70f || by > H - 70f) return "Слишком близко к краю"
+    private fun freeSpot(offset: Float, pad: Float): Pair<Float, Float>? {
+        val bx = me.x + cos(me.aim) * offset
+        val by = me.y + sin(me.aim) * offset
+        if (bx < 70f || by < 70f || bx > W - 70f || by > H - 70f) return null
         for (e in objects) {
             if (e.dead) continue
             val dx = e.x - bx
             val dy = e.y - by
-            if (dx * dx + dy * dy < (e.r + 36f) * (e.r + 36f)) return "Здесь уже что-то стоит"
+            if (dx * dx + dy * dy < (e.r + pad) * (e.r + pad)) return null
         }
+        return bx to by
+    }
+
+    fun wallAction(): String {
+        if (me.wood < 12) return "Нужно 12 дерева"
+        val spot = freeSpot(82f, 36f) ?: return "Здесь уже что-то стоит"
         me.wood -= 12
-        val e = Ent(builtId++, T_WALL, bx, by, 240f, 240f, 32f)
+        val e = Ent(builtId++, T_WALL, spot.first, spot.second, 240f, 240f, 32f)
         objects.add(e)
-        events.wallBuilt(e)
-        pop(bx, by - 20f, "Стена", 0xFFC9E88A.toInt())
+        events.built(e)
+        pop(e.x, e.y - 20f, "Стена", 0xFFC9E88A.toInt())
+        return ""
+    }
+
+    fun pumpkinAction(): String {
+        if (me.wood < 10) return "Нужно 10 дерева"
+        val spot = freeSpot(80f, 30f) ?: return "Здесь уже что-то стоит"
+        me.wood -= 10
+        val e = Ent(builtId++, T_PUMPKIN, spot.first, spot.second, pumpkinHp(), pumpkinHp(), 27f)
+        objects.add(e)
+        events.built(e)
+        pop(e.x, e.y - 20f, "Тыква", 0xFFFF8A2A.toInt())
         return ""
     }
 
@@ -1070,22 +1230,86 @@ class World(
             return "Снаряды готовы"
         }
         if (me.wood < 25 || me.stone < 15) return "Для верстака: 25 дерева, 15 камня"
-        val bx = me.x + cos(me.aim) * 86f
-        val by = me.y + sin(me.aim) * 86f
-        if (bx < 70f || by < 70f || bx > W - 70f || by > H - 70f) return "Слишком близко к краю"
-        for (e in objects) {
-            if (e.dead) continue
-            val dx = e.x - bx
-            val dy = e.y - by
-            if (dx * dx + dy * dy < (e.r + 38f) * (e.r + 38f)) return "Здесь уже что-то стоит"
-        }
+        val spot = freeSpot(86f, 38f) ?: return "Здесь уже что-то стоит"
         me.wood -= 25
         me.stone -= 15
-        val e = Ent(builtId++, T_BENCH, bx, by, 200f, 200f, 34f)
+        val e = Ent(builtId++, T_BENCH, spot.first, spot.second, 200f, 200f, 34f)
         objects.add(e)
-        events.wallBuilt(e)
-        pop(bx, by - 24f, "Верстак", 0xFFFFD95C.toInt())
+        events.built(e)
+        pop(e.x, e.y - 24f, "Верстак", 0xFFFFD95C.toInt())
         return "Верстак построен"
+    }
+
+    fun craft(kind: String): String {
+        val near = nearestBench() != null
+        if (!near) return "Нужно встать рядом с верстаком"
+        return when (kind) {
+            "armor" -> {
+                if (me.armor >= 99f) return "Броня уже надета"
+                if (me.iron < 8 || me.wood < 5) return "Броня: 8 железа, 5 дерева"
+                me.iron -= 8
+                me.wood -= 5
+                me.armor = 100f
+                pop(me.x, me.y - 50f, "Броня 100", 0xFF9FD8FF.toInt())
+                "Броня надета"
+            }
+            "tnt" -> {
+                if (me.sulfur < 4 || me.wood < 8) return "Взрывчатка: 4 серы, 8 дерева"
+                me.sulfur -= 4
+                me.wood -= 8
+                me.grenades += 2
+                pop(me.x, me.y - 50f, "+2 взрывчатки", 0xFFFF7A3C.toInt())
+                "Взрывчатка готова"
+            }
+            "ammo" -> {
+                if (me.iron < 3 || me.wood < 6) return "Патроны: 3 железа, 6 дерева"
+                me.iron -= 3
+                me.wood -= 6
+                me.ammoP += 12
+                pop(me.x, me.y - 50f, "+12 патронов", 0xFFFFB27A.toInt())
+                "Револьвер заряжен"
+            }
+            "rocket" -> {
+                if (me.wood < 15 || me.stone < 10) return "Ракеты: 15 дерева, 10 камня"
+                me.wood -= 15
+                me.stone -= 10
+                me.ammoR += 2
+                pop(me.x, me.y - 50f, "+2 ракеты", 0xFFFFB06A.toInt())
+                "Ракеты готовы"
+            }
+            "upgrade" -> {
+                if (me.toolLevel >= 3) return "Инструменты уже максимальные"
+                val ironNeed = when (me.toolLevel) { 0 -> 5; 1 -> 10; else -> 20 }
+                val coinNeed = when (me.toolLevel) { 0 -> 200; 1 -> 500; else -> 1200 }
+                val woodNeed = 10 + me.toolLevel * 10
+                if (me.iron < ironNeed || me.wood < woodNeed || me.coins < coinNeed) {
+                    return "Апгрейд: $ironNeed железа, $woodNeed дерева, ${fmt(coinNeed)} монет"
+                }
+                me.iron -= ironNeed
+                me.wood -= woodNeed
+                me.coins -= coinNeed
+                me.toolLevel++
+                pop(me.x, me.y - 50f, "Уровень ${me.toolLevel}", 0xFFB8FF6A.toInt())
+                "Инструменты: уровень ${me.toolLevel}"
+            }
+            else -> "Неизвестный крафт"
+        }
+    }
+
+    fun upgradeCostText(): String {
+        if (me.toolLevel >= 3) return "макс."
+        val ironNeed = when (me.toolLevel) { 0 -> 5; 1 -> 10; else -> 20 }
+        val coinNeed = when (me.toolLevel) { 0 -> 200; 1 -> 500; else -> 1200 }
+        val woodNeed = 10 + me.toolLevel * 10
+        return "$ironNeed ж · $woodNeed д · ${fmt(coinNeed)}"
+    }
+
+    fun canUpgrade(): Boolean {
+        if (me.toolLevel >= 3) return false
+        val ironNeed = when (me.toolLevel) { 0 -> 5; 1 -> 10; else -> 20 }
+        val coinNeed = when (me.toolLevel) { 0 -> 200; 1 -> 500; else -> 1200 }
+        val woodNeed = 10 + me.toolLevel * 10
+        return me.iron >= ironNeed && me.wood >= woodNeed && me.coins >= coinNeed
     }
 
     // --------------------------------------------------------- вспомогательное
@@ -1111,7 +1335,7 @@ class World(
         if (bestPlayer < Float.MAX_VALUE) return best
         for (e in objects) {
             if (e.dead) continue
-            if (e.type != T_TREE && e.type != T_ROCK && e.type != T_CRATE) continue
+            if (e.type != T_TREE && e.type != T_ROCK && e.type != T_CRATE && e.type != T_PUMPKIN) continue
             val dx = e.x - me.x
             val dy = e.y - me.y
             val d = sqrt(dx * dx + dy * dy)

@@ -1,6 +1,10 @@
 package io.gramm.game
 
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
@@ -9,6 +13,7 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Build
 import android.view.MotionEvent
 import android.view.View
@@ -25,21 +30,24 @@ import kotlin.math.sqrt
 class GameView(context: Context, private val store: Store) : View(context) {
 
     companion object {
-        private const val BG = 0xFF0B1410.toInt()
-        private const val PANEL = 0xFF14241B.toInt()
-        private const val PANEL2 = 0xFF1B3123.toInt()
-        private const val STROKE = 0xFF2E4C36.toInt()
-        private const val ACCENT = 0xFFC8FF4D.toInt()
-        private const val GOLD = 0xFFFFD95C.toInt()
-        private const val TEXT = 0xFFF0F8E9.toInt()
-        private const val DIM = 0xFF91A894.toInt()
+        private const val PANEL = 0xFF1C1214.toInt()
+        private const val PANEL2 = 0xFF2A1818.toInt()
+        private const val STROKE = 0xFF4A2A2A.toInt()
+        private const val ACCENT = 0xFFFF6B2C.toInt()
+        private const val GOLD = 0xFFFFC24D.toInt()
+        private const val TEXT = 0xFFF7E9DC.toInt()
+        private const val DIM = 0xFFB9A08F.toInt()
         private const val RED = 0xFFFF5D5D.toInt()
         private const val GREEN = 0xFF7BE06B.toInt()
     }
 
-    private enum class Scr { MENU, SERVERS, SKINS, GAME }
+    private enum class Scr { MENU, SERVERS, SKINS, WSKINS, GAME }
 
     private class Btn(val id: String, val r: RectF)
+
+    private class BuildBtn(val id: String, val r: RectF, val title: String, val cost: String)
+
+    private class BuildLayout(val panel: RectF, val close: RectF, val items: List<BuildBtn>)
 
     private class Feed(val text: String, val color: Int, val at: Long)
 
@@ -48,11 +56,14 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private var server = 0
     private var paused = false
     private var dead = false
+    private var buildOpen = false
     private var deathKiller = ""
     private var firedFlag = false
     private var stateTimer = 0f
+    private var cloudTimer = 0f
     private var time = 0f
     private var lastFrame = 0L
+    private var closed = false
 
     private val net = Net { s, j -> post { onNet(s, j) } }
     private val presence = HashMap<String, Long>()
@@ -61,6 +72,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private var menuButtons = ArrayList<Btn>()
     private var hudButtons = ArrayList<Btn>()
     private var slotRects = ArrayList<RectF>()
+    private var buildButtons = ArrayList<BuildBtn>()
 
     private var leftPointer = -1
     private var rightPointer = -1
@@ -68,8 +80,8 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private var moveY = 0f
     private var aimAngle = 0f
     private var firing = false
-    private var leftKnob = PointF()
-    private var rightKnob = PointF()
+    private val leftKnob = PointF()
+    private val rightKnob = PointF()
 
     private var lsX = 0f
     private var lsY = 0f
@@ -77,6 +89,8 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private var rsY = 0f
     private var stickR = 0f
     private var hpY = 0f
+    private var hotbarTop = 0f
+    private var hotbarSlot = 0f
 
     private var downX = 0f
     private var downY = 0f
@@ -88,11 +102,32 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private var bgShader: LinearGradient? = null
     private var insTop = 0f
 
+    private var updateInfo: Updater.Info? = null
+    private var updateStatus = ""
+    private var updateBusy = false
+    private var downloadedId = -1L
+
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pt = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pb = Paint(Paint.ANTI_ALIAS_FLAG)
 
     var onLogout: (() -> Unit)? = null
+
+    private val downloadReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, intent: Intent?) {
+            if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            if (id == -1L || id != downloadedId) return
+            updateBusy = false
+            updateStatus = "Готово · открой установщик"
+            try {
+                Updater.openInstaller(context, id)
+            } catch (_: Exception) {
+                toast("Скачано в Downloads")
+            }
+            invalidate()
+        }
+    }
 
     init {
         isFocusable = true
@@ -109,10 +144,29 @@ class GameView(context: Context, private val store: Store) : View(context) {
             insets
         }
         net.start()
+        try {
+            val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+            if (Build.VERSION.SDK_INT >= 33) {
+                // 4 == RECEIVER_NOT_EXPORTED (API 33+)
+                context.registerReceiver(downloadReceiver, filter, 4)
+            } else {
+                context.registerReceiver(downloadReceiver, filter)
+            }
+        } catch (_: Exception) {
+        }
+        Updater.check { info ->
+            if (info != null && !closed) post { updateInfo = info }
+        }
     }
 
     fun destroy() {
+        if (closed) return
+        closed = true
         net.stop()
+        try {
+            context.unregisterReceiver(downloadReceiver)
+        } catch (_: Exception) {
+        }
     }
 
     private fun dp(v: Float): Float = v * resources.displayMetrics.density
@@ -121,8 +175,8 @@ class GameView(context: Context, private val store: Store) : View(context) {
         super.onSizeChanged(w, h, oldw, oldh)
         bgShader = LinearGradient(
             0f, 0f, 0f, h.toFloat(),
-            intArrayOf(0xFF0A1511.toInt(), 0xFF10271B.toInt(), 0xFF08110D.toInt()),
-            floatArrayOf(0f, 0.55f, 1f),
+            intArrayOf(0xFF0C0607.toInt(), 0xFF241010.toInt(), 0xFF070404.toInt()),
+            floatArrayOf(0f, 0.58f, 1f),
             Shader.TileMode.CLAMP
         )
     }
@@ -150,17 +204,23 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 drawBackdrop(canvas)
                 drawSkins(canvas)
             }
-            Scr.GAME -> {
-                drawGame(canvas, d)
+            Scr.WSKINS -> {
+                drawBackdrop(canvas)
+                drawWeaponSkins(canvas)
             }
+            Scr.GAME -> drawGame(canvas, d)
         }
         postInvalidateOnAnimation()
     }
 
     fun handleBack(): Boolean {
+        if (screen == Scr.GAME && buildOpen) {
+            buildOpen = false
+            return true
+        }
         return when (screen) {
             Scr.MENU -> false
-            Scr.SERVERS, Scr.SKINS -> {
+            Scr.SERVERS, Scr.SKINS, Scr.WSKINS -> {
                 screen = Scr.MENU
                 true
             }
@@ -192,7 +252,10 @@ class GameView(context: Context, private val store: Store) : View(context) {
                     j.optDouble("y", 0.0).toFloat(),
                     j.optDouble("h", 100.0).toFloat(),
                     j.optDouble("a", 0.0).toFloat(),
-                    j.optInt("w", 3), j.optInt("kl", 0), j.optInt("c", 0)
+                    j.optInt("w", 4), j.optInt("kl", 0), j.optInt("c", 0),
+                    j.optInt("ir", 0), j.optInt("sf", 0),
+                    j.optDouble("ar", 0.0).toFloat(),
+                    j.optInt("tl", 0), j.optInt("ws", 0), j.optInt("gp", 0)
                 )
                 if (j.optInt("f", 0) == 1) {
                     w.players[id]?.let { w.remoteShotFx(it) }
@@ -208,21 +271,27 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 }
             }
             "obj" -> w.removeObject(j.optInt("id", -1))
-            "build" -> w.addRemoteWall(
-                j.optInt("id", -1),
-                j.optDouble("x", 0.0).toFloat(),
-                j.optDouble("y", 0.0).toFloat(),
-                j.optDouble("h", 240.0).toFloat()
-            )
+            "build" -> {
+                val bid = j.optInt("id", -1)
+                if (bid > 0) {
+                    w.addRemoteBuild(
+                        bid,
+                        j.optDouble("x", 0.0).toFloat(),
+                        j.optDouble("y", 0.0).toFloat(),
+                        j.optDouble("h", 240.0).toFloat(),
+                        j.optInt("bt", World.T_WALL)
+                    )
+                }
+            }
             "kill" -> {
                 if (j.optString("sid") == w.me.id) return
-                val bid = j.optString("bid")
+                val killerId = j.optString("bid")
                 val by = j.optString("by")
                 val vic = j.optString("vic")
                 if (by.isNotEmpty() && vic.isNotEmpty()) {
                     feedAdd("$by убил $vic", RED)
                 }
-                if (bid == w.me.id) {
+                if (killerId == w.me.id) {
                     w.me.kills++
                     w.me.coins += 40
                     store.addCoins(40)
@@ -235,7 +304,13 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private fun remoteHurt(v: Float, byId: String, byName: String) {
         val w = world ?: return
         if (!w.me.alive) return
-        w.me.hp -= v
+        var real = v
+        if (w.me.armor > 0f) {
+            val absorbed = min(w.me.armor, real * 0.5f)
+            w.me.armor = max(0f, w.me.armor - absorbed)
+            real -= absorbed
+        }
+        w.me.hp -= real
         w.me.hurt = 0.25f
         w.me.flash = 0.2f
         if (byId.isNotEmpty()) {
@@ -251,9 +326,11 @@ class GameView(context: Context, private val store: Store) : View(context) {
     }
 
     private fun die(killerName: String, killerId: String) {
+        if (dead) return
         val w = world ?: return
         dead = true
         paused = false
+        buildOpen = false
         firing = false
         deathKiller = killerName.ifEmpty { "лес" }
         feedAdd("Тебя убил $deathKiller", RED)
@@ -283,13 +360,14 @@ class GameView(context: Context, private val store: Store) : View(context) {
             net.send(server, JSONObject().put("t", "obj").put("id", id))
         }
 
-        override fun wallBuilt(e: Ent) {
+        override fun built(e: Ent) {
             val j = JSONObject()
                 .put("t", "build")
                 .put("id", e.id)
                 .put("x", e.x.toDouble())
                 .put("y", e.y.toDouble())
                 .put("h", e.hp.toDouble())
+                .put("bt", e.type)
             net.send(server, j)
         }
 
@@ -343,6 +421,12 @@ class GameView(context: Context, private val store: Store) : View(context) {
             .put("w", m.weapon)
             .put("kl", m.kills)
             .put("c", m.coins)
+            .put("ir", m.iron)
+            .put("sf", m.sulfur)
+            .put("ar", m.armor.toDouble())
+            .put("tl", m.toolLevel)
+            .put("ws", m.weaponSkin)
+            .put("gp", m.grenades)
             .put("f", if (firedFlag && m.alive) 1 else 0)
         firedFlag = false
         net.send(server, j)
@@ -370,13 +454,17 @@ class GameView(context: Context, private val store: Store) : View(context) {
         store.resetIfWiped(s, System.currentTimeMillis())
         val w = World(s, Ev(), store.user ?: "Игрок", store.selectedSkin)
         w.me.coins = store.coins
+        w.me.toolLevel = store.toolLevel
+        w.me.weaponSkin = store.selectedWeaponSkin
         world = w
         screen = Scr.GAME
         paused = false
         dead = false
+        buildOpen = false
         deathKiller = ""
         firedFlag = false
         stateTimer = 10f
+        cloudTimer = 0f
         leftPointer = -1
         rightPointer = -1
         moveX = 0f
@@ -388,10 +476,23 @@ class GameView(context: Context, private val store: Store) : View(context) {
     }
 
     private fun exitGame() {
+        val w = world
+        if (w != null) {
+            store.toolLevel = max(store.toolLevel, w.me.toolLevel)
+            store.user?.let { u ->
+                Thread {
+                    try {
+                        Cloud.pushProfile(u, store.exportProfile())
+                    } catch (_: Exception) {
+                    }
+                }.start()
+            }
+        }
         screen = Scr.MENU
         world = null
         paused = false
         dead = false
+        buildOpen = false
         leftPointer = -1
         rightPointer = -1
         moveX = 0f
@@ -410,19 +511,29 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val biome = BIOMES[server % BIOMES.size]
 
         if (w.me.alive) {
-            aimAngle = if (rightPointer >= 0) aimAngle else if (moveX != 0f || moveY != 0f) atan2(moveY, moveX) else aimAngle
+            aimAngle = if (rightPointer >= 0) aimAngle
+            else if (moveX != 0f || moveY != 0f) atan2(moveY, moveX)
+            else aimAngle
             w.me.aim = aimAngle
-            w.me.weapon = w.me.weapon.coerceIn(0, 5)
+            w.me.weapon = w.me.weapon.coerceIn(0, World.WEAPONS.size - 1)
+            w.me.weaponSkin = store.selectedWeaponSkin
         }
-        if (!paused) {
-            w.update(dt, if (w.me.alive) moveX else 0f, if (w.me.alive) moveY else 0f, firing && w.me.alive)
+        if (!paused && !buildOpen) {
+            w.update(
+                dt,
+                if (w.me.alive) moveX else 0f,
+                if (w.me.alive) moveY else 0f,
+                firing && w.me.alive
+            )
             stateTimer += dt
             if (stateTimer > 0.12f) {
                 stateTimer = 0f
                 sendState()
             }
-            if (dead && w.me.deadT == 0f && w.me.hp <= 0f) {
-                // смерть уже обработана
+            cloudTimer += dt
+            if (cloudTimer > 45f) {
+                cloudTimer = 0f
+                store.user?.let { u -> Cloud.pushProfile(u, store.exportProfile()) }
             }
         }
 
@@ -609,10 +720,21 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 if (w.nearestBench() === e) {
                     p.style = Paint.Style.STROKE
                     p.strokeWidth = 2f
-                    p.color = 0x88C8FF4D.toInt()
+                    p.color = 0x88FF8A3C.toInt()
                     c.drawCircle(e.x, e.y, e.r + 10f + sin(time * 3f) * 3f, p)
                     p.style = Paint.Style.FILL
                 }
+            }
+            World.T_PUMPKIN -> {
+                Art.pumpkin(c, e.x, e.y, e.r, p)
+                if (e.flash > 0f) {
+                    p.style = Paint.Style.STROKE
+                    p.strokeWidth = 4f
+                    p.color = (0xCCFFFFFF.toInt() * (e.flash / 0.12f)).toInt()
+                    c.drawCircle(e.x, e.y, e.r * 1.05f, p)
+                    p.style = Paint.Style.FILL
+                }
+                if (e.hp < e.maxHp) bar(c, e.x - e.r * 0.7f, e.y - e.r * 1.4f, 44f, e.hp / e.maxHp)
             }
         }
     }
@@ -659,7 +781,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
             if (!pl.isMe && !pl.isBot && pl.hp <= 0f) continue
             val r = 22f
             val skin = SKINS[pl.skin.coerceIn(0, SKINS.size - 1)]
-            Art.character(c, skin, pl.x, pl.y, r, pl.angle, pl.weapon, p)
+            Art.character(c, skin, pl.x, pl.y, r, pl.angle, pl.weapon, p, pl.weaponSkin)
             if (pl.hurt > 0f) {
                 p.color = 0x66FF4444
                 c.drawCircle(pl.x, pl.y, r * 1.1f, p)
@@ -667,9 +789,12 @@ class GameView(context: Context, private val store: Store) : View(context) {
             if (!pl.isMe || pl.hp < 100f) {
                 bar(c, pl.x - 30f, pl.y - 54f, 60f, pl.hp / 100f)
             }
+            if (pl.armor > 0f) {
+                p.color = 0x995AA8E0.toInt()
+                c.drawRoundRect(pl.x - 30f, pl.y - 43f, pl.x - 30f + 60f * (pl.armor / 100f), pl.y - 39f, 2f, 2f, p)
+            }
             pt.textAlign = Paint.Align.CENTER
             pt.textSize = 20f
-            pt.color = if (pl.isMe) ACCENT else 0xFFF2F8EE.toInt()
             pt.style = Paint.Style.STROKE
             pt.strokeWidth = 4f
             pt.color = 0xCC000000.toInt()
@@ -679,7 +804,6 @@ class GameView(context: Context, private val store: Store) : View(context) {
             c.drawText(shortName(pl.name), pl.x, pl.y - 62f, pt)
             pt.textAlign = Paint.Align.LEFT
         }
-        // прицел
         if (w.me.alive) {
             val ax = w.me.x + cos(w.me.aim) * 76f
             val ay = w.me.y + sin(w.me.aim) * 76f
@@ -687,7 +811,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
             p.strokeWidth = 2f
             p.color = 0x66FFFFFF
             c.drawLine(w.me.x + cos(w.me.aim) * 34f, w.me.y + sin(w.me.aim) * 34f, ax, ay, p)
-            p.color = 0x99C8FF4D.toInt()
+            p.color = 0x99FF8A3C.toInt()
             c.drawCircle(ax, ay, 4f, p)
             p.style = Paint.Style.FILL
         }
@@ -697,11 +821,10 @@ class GameView(context: Context, private val store: Store) : View(context) {
         pt.textAlign = Paint.Align.CENTER
         pt.textSize = 21f
         for (t in w.texts) {
-            pt.color = t.color
-            pt.alpha = (t.life / 0.95f * 255).toInt().coerceIn(0, 255)
             pt.style = Paint.Style.STROKE
             pt.strokeWidth = 4f
             pt.color = 0xCC000000.toInt()
+            pt.alpha = (t.life / 0.95f * 255).toInt().coerceIn(0, 255)
             c.drawText(t.text, t.x, t.y, pt)
             pt.style = Paint.Style.FILL
             pt.color = t.color
@@ -725,33 +848,77 @@ class GameView(context: Context, private val store: Store) : View(context) {
         return null
     }
 
+    private fun layoutBuild(): BuildLayout {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val pw = min(w - dp(24f), dp(348f))
+        val cardH = dp(52f)
+        val gap = dp(8f)
+        val ph = dp(44f) + cardH * 4f + gap * 3f + dp(10f)
+        val left = (w - pw) / 2f
+        val top = max(dp(58f) + insTop, (h - ph) / 2f)
+        val panel = RectF(left, top, left + pw, top + ph)
+        val close = RectF(panel.right - dp(38f), panel.top + dp(6f), panel.right - dp(6f), panel.top + dp(38f))
+        val cw = (pw - dp(20f) - gap) / 2f
+        val defs = arrayOf(
+            arrayOf("build_wall", "Стена", "12 дерева"),
+            arrayOf("build_pumpkin", "Тыква", "10 дерева"),
+            arrayOf("build_bench", "Верстак", "25 д · 15 к"),
+            arrayOf("craft_armor", "Броня", "8 ж · 5 д"),
+            arrayOf("craft_tnt", "Взрывчатка", "4 с · 8 д"),
+            arrayOf("craft_ammo", "Патроны", "3 ж · 6 д"),
+            arrayOf("craft_rocket", "Ракеты", "15 д · 10 к"),
+            arrayOf("craft_upgrade", "Апгрейд", "железо + монеты")
+        )
+        val items = ArrayList<BuildBtn>()
+        val startY = panel.top + dp(46f)
+        for (i in defs.indices) {
+            val col = i % 2
+            val row = i / 2
+            val l = left + dp(10f) + col * (cw + gap)
+            val t = startY + row * (cardH + gap)
+            items.add(BuildBtn(defs[i][0], RectF(l, t, l + cw, t + cardH), defs[i][1], defs[i][2]))
+        }
+        return BuildLayout(panel, close, items)
+    }
+
     private fun layoutHud() {
         hudButtons.clear()
         slotRects.clear()
+        buildButtons.clear()
         val w = width.toFloat()
         val h = height.toFloat()
-        stickR = dp(62f)
-        lsX = dp(16f) + stickR
-        rsX = w - dp(16f) - stickR
-        lsY = h - dp(14f) - dp(52f) - dp(18f) - stickR
+        stickR = min(dp(58f), w * 0.17f)
+        lsX = dp(14f) + stickR
+        rsX = w - dp(14f) - stickR
+        hotbarSlot = min(dp(42f), (w - dp(16f) - dp(4f) * 8f) / 9f)
+        hotbarTop = h - dp(8f) - hotbarSlot
+        lsY = hotbarTop - dp(13f) - stickR
         rsY = lsY
-        hpY = lsY - stickR - dp(28f)
+        hpY = lsY - stickR - dp(34f)
 
         addHud("menu", dp(8f), dp(8f) + insTop, dp(56f), dp(56f) + insTop)
 
-        val slot = dp(44f)
-        val gap = dp(5f)
-        val total = slot * 6 + gap * 5
-        val left = (w - total) / 2f
-        val top = h - dp(12f) - slot
-        for (i in 0 until 6) {
-            val l = left + i * (slot + gap)
-            slotRects.add(RectF(l, top, l + slot, top + slot))
-            addHud("slot$i", l, top, l + slot, top + slot)
+        if (buildOpen) {
+            val bl = layoutBuild()
+            buildButtons.addAll(bl.items)
+            addHud("build_close", bl.close.left, bl.close.top, bl.close.right, bl.close.bottom)
+            for (b in bl.items) addHud(b.id, b.r.left, b.r.top, b.r.right, b.r.bottom)
+            return
         }
 
-        addHud("wall", w - dp(60f), hpY - dp(24f), w - dp(12f), hpY + dp(24f))
-        addHud("bench", w - dp(60f), hpY - dp(82f), w - dp(12f), hpY - dp(34f))
+        val gap = dp(4f)
+        val total = hotbarSlot * 9f + gap * 8f
+        val left = (w - total) / 2f
+        for (i in 0 until World.WEAPONS.size) {
+            val l = left + i * (hotbarSlot + gap)
+            slotRects.add(RectF(l, hotbarTop, l + hotbarSlot, hotbarTop + hotbarSlot))
+            addHud("slot$i", l, hotbarTop, l + hotbarSlot, hotbarTop + hotbarSlot)
+        }
+
+        val hx = w - dp(35f)
+        val hy = rsY - stickR - dp(30f)
+        addHud("build", hx - dp(25f), hy - dp(25f), hx + dp(25f), hy + dp(25f))
 
         if (paused) {
             val bw = min(w - dp(56f), dp(290f))
@@ -775,7 +942,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val heightF = height.toFloat()
 
         // кнопка меню
-        p.color = 0x990B1410.toInt()
+        p.color = 0x990C0708.toInt()
         c.drawCircle(dp(32f), dp(32f) + insTop, dp(21f), p)
         p.style = Paint.Style.STROKE
         p.strokeWidth = dp(2f)
@@ -790,11 +957,10 @@ class GameView(context: Context, private val store: Store) : View(context) {
         // монеты сверху
         val pillW = dp(122f)
         val pillTop = dp(12f) + insTop
-        panel(c, widthF / 2f - pillW / 2f, pillTop, widthF / 2f + pillW / 2f, pillTop + dp(34f), dp(17f), 0xCC14241B.toInt(), STROKE)
+        panel(c, widthF / 2f - pillW / 2f, pillTop, widthF / 2f + pillW / 2f, pillTop + dp(34f), dp(17f), 0xCC1C1214.toInt(), STROKE)
         Art.coin(c, widthF / 2f - pillW / 2f + dp(20f), pillTop + dp(17f), dp(11f), p)
         txt(fmt(store.coins), widthF / 2f + pillW / 2f - dp(14f), pillTop + dp(22f), dp(15f), GOLD, true, Paint.Align.RIGHT)
 
-        // лидерборд
         drawLeaderboard(c, w)
 
         // килл-фид
@@ -817,36 +983,52 @@ class GameView(context: Context, private val store: Store) : View(context) {
         }
         pt.alpha = 255
 
-        // хп и ресурсы
-        val hpW = dp(180f)
+        // хп и броня
+        val hpW = min(dp(190f), widthF * 0.54f)
         val hx = widthF / 2f - hpW / 2f
         panel(c, hx, hpY, hx + hpW, hpY + dp(12f), dp(6f), 0xAA000000.toInt(), STROKE)
         val frac = (w.me.hp / 100f).coerceIn(0f, 1f)
         p.color = if (frac > 0.5f) GREEN else if (frac > 0.25f) 0xFFE0A33A.toInt() else RED
         c.drawRoundRect(hx + dp(2f), hpY + dp(2f), hx + (hpW - dp(2f)) * frac, hpY + dp(10f), dp(4f), dp(4f), p)
         txt("${w.me.hp.toInt()}", widthF / 2f, hpY + dp(10f), dp(10f), 0xFFFFFFFF.toInt(), true, Paint.Align.CENTER)
+        if (w.me.armor > 0f) {
+            panel(c, hx, hpY + dp(13f), hx + hpW, hpY + dp(19f), dp(3f), 0xAA000000.toInt(), 0)
+            p.color = 0xFF6FC2F0.toInt()
+            c.drawRoundRect(hx + dp(1f), hpY + dp(14f), hx + dp(1f) + (hpW - dp(2f)) * (w.me.armor / 100f).coerceIn(0f, 1f), hpY + dp(18f), dp(2f), dp(2f), p)
+        }
 
-        val resY = hpY - dp(22f)
-        val rw = dp(72f)
-        panel(c, widthF / 2f - rw - dp(4f), resY - dp(14f), widthF / 2f - dp(4f), resY + dp(14f), dp(12f), 0x9914241B.toInt(), 0)
-        Art.woodIcon(c, widthF / 2f - rw + dp(12f), resY, dp(9f), p)
-        txt("${w.me.wood}", widthF / 2f - dp(12f), resY + dp(5f), dp(12f), TEXT, true, Paint.Align.RIGHT)
-        panel(c, widthF / 2f + dp(4f), resY - dp(14f), widthF / 2f + rw + dp(4f), resY + dp(14f), dp(12f), 0x9914241B.toInt(), 0)
-        Art.stoneIcon(c, widthF / 2f + dp(16f), resY, dp(9f), p)
-        txt("${w.me.stone}", widthF / 2f + rw - dp(10f), resY + dp(5f), dp(12f), TEXT, true, Paint.Align.RIGHT)
+        // ресурсы
+        val resGap = dp(5f)
+        val resW = (widthF - dp(16f) - resGap * 3f) / 4f
+        val resLeft = (widthF - (resW * 4f + resGap * 3f)) / 2f
+        val resY = hpY - dp(32f)
+        drawResPill(c, resLeft, resLeft + resW, resY, w.me.wood, 0)
+        drawResPill(c, resLeft + resW + resGap, resLeft + resW * 2f + resGap, resY, w.me.stone, 1)
+        drawResPill(c, resLeft + (resW + resGap) * 2f, resLeft + resW * 3f + resGap * 2f, resY, w.me.iron, 2)
+        drawResPill(c, resLeft + (resW + resGap) * 3f, resLeft + resW * 4f + resGap * 3f, resY, w.me.sulfur, 3)
 
         // хотбар
-        for (i in 0 until 6) {
+        for (i in 0 until World.WEAPONS.size) {
+            if (i >= slotRects.size) break
             val r = slotRects[i]
             val selected = w.me.weapon == i
-            panel(c, r.left, r.top, r.right, r.bottom, dp(9f), if (selected) 0xEE1F3526.toInt() else 0xCC101C14.toInt(), if (selected) ACCENT else 0x66466B4D)
-            Art.weapon(c, i, r.centerX(), r.centerY() - dp(2f), dp(30f), p)
-            if (i == 3) {
-                txt("${w.me.ammoT}", r.right - dp(4f), r.bottom - dp(4f), dp(9f), if (w.me.ammoT > 0) TEXT else RED, true, Paint.Align.RIGHT)
-            } else if (i == 4) {
-                txt("${w.me.ammoR}", r.right - dp(4f), r.bottom - dp(4f), dp(9f), if (w.me.ammoR > 0) TEXT else RED, true, Paint.Align.RIGHT)
-            } else if (i == 5) {
-                txt("x${w.me.meds}", r.right - dp(4f), r.bottom - dp(4f), dp(9f), TEXT, true, Paint.Align.RIGHT)
+            panel(
+                c, r.left, r.top, r.right, r.bottom, dp(8f),
+                if (selected) 0xEE2A1818.toInt() else 0xCC160E0F.toInt(),
+                if (selected) ACCENT else 0x554A2A2A
+            )
+            Art.weapon(c, i, r.centerX(), r.centerY() - dp(2f), r.width() * 0.68f, p, store.selectedWeaponSkin)
+            var ammo = ""
+            var ammoLow = false
+            when (i) {
+                4 -> { ammo = "${w.me.ammoT}"; ammoLow = w.me.ammoT <= 0 }
+                5 -> { ammo = "${w.me.ammoP}"; ammoLow = w.me.ammoP <= 0 }
+                6 -> { ammo = "${w.me.ammoR}"; ammoLow = w.me.ammoR <= 0 }
+                7 -> { ammo = "x${w.me.grenades}"; ammoLow = w.me.grenades <= 0 }
+                8 -> { ammo = "x${w.me.meds}"; ammoLow = w.me.meds <= 0 }
+            }
+            if (ammo.isNotEmpty()) {
+                txt(ammo, r.right - dp(3f), r.bottom - dp(3f), dp(8f), if (ammoLow) RED else TEXT, true, Paint.Align.RIGHT)
             }
             if (selected && w.me.fireCd > 0f) {
                 val cd = (w.me.fireCd / World.WEAPONS[i].rate).coerceIn(0f, 1f)
@@ -854,17 +1036,106 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 c.drawRect(r.left + dp(2f), r.top + dp(2f), r.right - dp(2f), r.top + dp(2f) + (r.height() - dp(4f)) * cd, p)
             }
         }
+        txt(
+            World.WEAPONS[w.me.weapon.coerceIn(0, World.WEAPONS.size - 1)].name,
+            widthF / 2f, hotbarTop - dp(7f), dp(9.5f), DIM, true, Paint.Align.CENTER
+        )
 
         // джойстики
         drawStick(c, lsX, lsY, leftKnob, leftPointer >= 0, ACCENT)
         drawStick(c, rsX, rsY, rightKnob, rightPointer >= 0, GOLD)
 
-        // постройки
-        drawBuildButtons(c, w)
+        drawHammer(c, w)
 
+        if (buildOpen) drawBuildOverlay(c, w)
         if (paused) drawPause(c)
         if (dead) drawDeath(c, w)
         drawToast(c)
+    }
+
+    private fun drawResPill(c: Canvas, left: Float, right: Float, y: Float, value: Int, kind: Int) {
+        panel(c, left, y, right, y + dp(22f), dp(11f), 0x991C1214.toInt(), 0x334A2A2A)
+        val iconX = left + dp(13f)
+        val iconY = y + dp(11f)
+        val s = dp(7.5f)
+        when (kind) {
+            0 -> Art.woodIcon(c, iconX, iconY, s, p)
+            1 -> Art.stoneIcon(c, iconX, iconY, s, p)
+            2 -> Art.ironIcon(c, iconX, iconY, s, p)
+            else -> Art.sulfurIcon(c, iconX, iconY, s, p)
+        }
+        txt("$value", right - dp(8f), y + dp(16f), dp(11f), TEXT, true, Paint.Align.RIGHT)
+    }
+
+    private fun drawHammer(c: Canvas, w: World) {
+        val cx = width - dp(35f)
+        val cy = rsY - stickR - dp(30f)
+        p.style = Paint.Style.FILL
+        p.color = if (buildOpen) 0xEE2A1818.toInt() else 0xCC160E0F.toInt()
+        c.drawCircle(cx, cy, dp(23f), p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = dp(1.6f)
+        p.color = if (buildOpen) ACCENT else 0x554A2A2A
+        c.drawCircle(cx, cy, dp(23f), p)
+        p.style = Paint.Style.FILL
+        c.save()
+        c.rotate(-38f, cx, cy)
+        p.color = 0xFF9AA4AA.toInt()
+        c.drawRoundRect(cx - dp(12f), cy - dp(6f), cx + dp(12f), cy + dp(6f), dp(3f), dp(3f), p)
+        p.color = 0xFF7A5230.toInt()
+        c.drawRoundRect(cx - dp(3f), cy - dp(4f), cx + dp(3f), cy + dp(16f), dp(2f), dp(2f), p)
+        c.restore()
+        if (buildOpen) {
+            txt("×", cx, cy + dp(28f), dp(12f), DIM, true, Paint.Align.CENTER)
+        }
+    }
+
+    private fun drawBuildOverlay(c: Canvas, w: World) {
+        p.color = 0xCC050203.toInt()
+        c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), p)
+        val bl = layoutBuild()
+        panel(c, bl.panel.left, bl.panel.top, bl.panel.right, bl.panel.bottom, dp(16f), 0xF21C1214.toInt(), STROKE)
+        txt("СТРОЙКА И КРАФТ", bl.panel.left + dp(13f), bl.panel.top + dp(27f), dp(15f), ACCENT, true)
+        txt("×", bl.close.centerX(), bl.close.centerY() + dp(7f), dp(20f), TEXT, true, Paint.Align.CENTER)
+
+        for (b in bl.items) {
+            panel(c, b.r.left, b.r.top, b.r.right, b.r.bottom, dp(10f), 0xCC160E0F.toInt(), 0x554A2A2A)
+            buildIcon(c, b.id, b.r.left + dp(24f), b.r.centerY(), dp(10f))
+            txt(b.title, b.r.left + dp(46f), b.r.top + dp(22f), dp(11.5f), TEXT, true)
+            txt(b.cost, b.r.left + dp(46f), b.r.top + dp(38f), dp(9f), GOLD, false)
+        }
+        if (w.nearestBench() == null) {
+            txt(
+                "броня, взрывчатка, патроны и апгрейд — у верстака",
+                bl.panel.centerX(), bl.panel.bottom + dp(16f), dp(8.5f), DIM, false, Paint.Align.CENTER
+            )
+        }
+    }
+
+    private fun buildIcon(c: Canvas, id: String, cx: Float, cy: Float, s: Float) {
+        p.style = Paint.Style.FILL
+        when (id) {
+            "build_wall" -> {
+                p.color = 0xFF8E6335.toInt()
+                c.drawRoundRect(cx - s, cy - s * 0.9f, cx + s, cy + s * 0.9f, s * 0.2f, s * 0.2f, p)
+                p.color = 0xFFB98A55.toInt()
+                c.drawRect(cx - s * 0.8f, cy - s * 0.6f, cx + s * 0.8f, cy - s * 0.1f, p)
+                c.drawRect(cx - s * 0.8f, cy + s * 0.1f, cx + s * 0.8f, cy + s * 0.6f, p)
+            }
+            "build_pumpkin" -> Art.pumpkin(c, cx, cy, s * 0.9f, p)
+            "build_bench" -> {
+                p.color = 0xFFB98A55.toInt()
+                c.drawRoundRect(cx - s, cy - s * 0.7f, cx + s, cy + s * 0.2f, s * 0.2f, s * 0.2f, p)
+                p.color = 0xFF6E4C2B.toInt()
+                c.drawRect(cx - s * 0.7f, cy + s * 0.2f, cx - s * 0.35f, cy + s * 1.0f, p)
+                c.drawRect(cx + s * 0.35f, cy + s * 0.2f, cx + s * 0.7f, cy + s * 1.0f, p)
+            }
+            "craft_armor" -> Art.armorIcon(c, cx, cy, s, p)
+            "craft_tnt" -> Art.weapon(c, 7, cx, cy, s * 2.6f, p, 0)
+            "craft_ammo" -> Art.weapon(c, 5, cx, cy, s * 2.4f, p, store.selectedWeaponSkin)
+            "craft_rocket" -> Art.rocketIcon(c, cx, cy, s, p)
+            "craft_upgrade" -> Art.weapon(c, 1, cx, cy, s * 2.4f, p, store.selectedWeaponSkin)
+        }
     }
 
     private fun drawLeaderboard(c: Canvas, w: World) {
@@ -877,7 +1148,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
             .sortedWith(compareByDescending<P> { it.kills }.thenByDescending { it.coins })
             .take(7)
         val bh = dp(24f) + rows.size * dp(17f)
-        panel(c, left, top, right, top + bh, dp(10f), 0x99101C14.toInt(), 0x55466B4D)
+        panel(c, left, top, right, top + bh, dp(10f), 0x991C1214.toInt(), 0x554A2A2A)
         txt("ЛИДЕРЫ", left + dp(9f), top + dp(15f), dp(9.5f), DIM, true)
         var y = top + dp(30f)
         for ((i, p1) in rows.withIndex()) {
@@ -895,7 +1166,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         c.drawCircle(cx, cy, stickR, p)
         p.style = Paint.Style.STROKE
         p.strokeWidth = dp(1.5f)
-        p.color = if (active) 0x88FFFFFF.toInt().toInt() else 0x44FFFFFF
+        p.color = if (active) 0x88FFFFFF.toInt() else 0x44FFFFFF.toInt()
         c.drawCircle(cx, cy, stickR, p)
         p.style = Paint.Style.FILL
         p.color = if (active) 0x77FFFFFF else 0x55FFFFFF
@@ -906,48 +1177,8 @@ class GameView(context: Context, private val store: Store) : View(context) {
         p.alpha = 255
     }
 
-    private fun drawBuildButtons(c: Canvas, w: World) {
-        val nearBench = w.nearestBench() != null
-        val wallOk = w.me.wood >= 12
-        val benchOk = if (nearBench) w.me.wood >= 15 && w.me.stone >= 10 else w.me.wood >= 25 && w.me.stone >= 15
-        val cx = width - dp(36f)
-        val yWall = hpY
-        val yBench = hpY - dp(58f)
-        buildBtn(c, cx, yWall, wallOk, "12")
-        p.color = 0xFFA97A45.toInt()
-        c.drawRoundRect(cx - dp(13f), yWall - dp(9f), cx + dp(13f), yWall + dp(11f), dp(3f), dp(3f), p)
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = dp(1.3f)
-        p.color = 0xFF6E4C2B.toInt()
-        c.drawLine(cx - dp(10f), yWall - dp(2f), cx + dp(10f), yWall - dp(2f), p)
-        c.drawLine(cx - dp(10f), yWall + dp(5f), cx + dp(10f), yWall + dp(5f), p)
-        p.style = Paint.Style.FILL
-
-        buildBtn(c, cx, yBench, benchOk, if (nearBench) "+2" else "25")
-        if (nearBench) {
-            Art.rocketIcon(c, cx, yBench, dp(20f), p)
-        } else {
-            p.color = 0xFFB98A55.toInt()
-            c.drawRoundRect(cx - dp(13f), yBench - dp(7f), cx + dp(13f), yBench + dp(3f), dp(3f), dp(3f), p)
-            p.color = 0xFF6E4C2B.toInt()
-            c.drawRect(cx - dp(10f), yBench + dp(3f), cx - dp(6f), yBench + dp(12f), p)
-            c.drawRect(cx + dp(7f), yBench + dp(3f), cx + dp(11f), yBench + dp(12f), p)
-        }
-    }
-
-    private fun buildBtn(c: Canvas, cx: Float, cy: Float, ok: Boolean, cost: String) {
-        p.color = if (ok) 0xCC1A2C20.toInt() else 0x88101812.toInt()
-        c.drawCircle(cx, cy - dp(2f), dp(23f), p)
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = dp(1.5f)
-        p.color = if (ok) 0x88466B4D.toInt() else 0x33333333.toInt()
-        c.drawCircle(cx, cy - dp(2f), dp(23f), p)
-        p.style = Paint.Style.FILL
-        txt(cost, cx, cy + dp(15f), dp(8f), if (ok) GOLD else DIM, true, Paint.Align.CENTER)
-    }
-
     private fun drawPause(c: Canvas) {
-        p.color = 0xBB050A07.toInt()
+        p.color = 0xBB050203.toInt()
         c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), p)
         val cx = width / 2f
         txt("ПАУЗА", cx, height * 0.34f, dp(30f), TEXT, true, Paint.Align.CENTER)
@@ -956,7 +1187,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val by = height * 0.46f
         primaryButton(c, RectF(cx - bw / 2f, by, cx + bw / 2f, by + dp(52f)), "ПРОДОЛЖИТЬ")
         secondaryButton(c, RectF(cx - bw / 2f, by + dp(64f), cx + bw / 2f, by + dp(116f)), "В МЕНЮ")
-        txt("Выйти из боя можно в любой момент", cx, by + dp(144f), dp(10f), DIM, false, Paint.Align.CENTER)
+        txt("выходить можно в любой момент", cx, by + dp(144f), dp(10f), DIM, false, Paint.Align.CENTER)
     }
 
     private fun drawDeath(c: Canvas, w: World) {
@@ -976,14 +1207,14 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private fun drawToast(c: Canvas) {
         if (toastMsg.isEmpty()) return
         val age = System.currentTimeMillis() - toastAt
-        if (age > 2200L) return
-        val a = if (age > 1700L) ((2200L - age) / 500f * 255).toInt() else 255
+        if (age > 2400L) return
+        val a = if (age > 1900L) ((2400L - age) / 500f * 255).toInt() else 255
         pt.textSize = dp(12f)
         pt.textAlign = Paint.Align.CENTER
         val tw = pt.measureText(toastMsg)
         val x = width / 2f
-        val y = height * 0.70f
-        p.color = 0xE6101C14.toInt()
+        val y = height * 0.68f
+        p.color = 0xE61C1214.toInt()
         p.alpha = a
         c.drawRoundRect(x - tw / 2f - dp(16f), y - dp(20f), x + tw / 2f + dp(16f), y + dp(10f), dp(15f), dp(15f), p)
         pt.color = TEXT
@@ -1003,48 +1234,64 @@ class GameView(context: Context, private val store: Store) : View(context) {
         p.color = 0xFFFFFFFF.toInt()
         c.drawRect(0f, 0f, w, h, p)
         p.shader = null
-
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = dp(1f)
-        p.color = 0x08FFFFFF
-        var x = 0f
-        while (x < w) {
-            c.drawLine(x, 0f, x, h, p)
-            x += dp(44f)
-        }
-        var y = 0f
-        while (y < h) {
-            c.drawLine(0f, y, w, y, p)
-            y += dp(44f)
-        }
         p.style = Paint.Style.FILL
-        p.color = 0x10C8FF4D
-        c.drawCircle(w * 0.14f, h * 0.24f, dp(86f), p)
-        c.drawCircle(w * 0.88f, h * 0.40f, dp(110f), p)
 
-        p.color = 0x22000000
+        // звёзды
+        p.color = 0x22FFE0C0
+        for (k in 0 until 26) {
+            val sx = w * ((k * 37 % 97) / 97f)
+            val sy = h * 0.05f + h * 0.30f * ((k * 53 % 89) / 89f)
+            c.drawCircle(sx, sy, dp(1.2f) + (k % 3) * dp(0.5f), p)
+        }
+
+        // луна
+        p.color = 0x22FF7A2A
+        c.drawCircle(w * 0.80f, h * 0.13f, dp(64f), p)
+        p.color = 0xCCF0B47A.toInt()
+        c.drawCircle(w * 0.80f, h * 0.13f, dp(34f), p)
+        p.color = 0x33FFE0B0
+        c.drawCircle(w * 0.80f, h * 0.13f, dp(44f), p)
+
+        // туман
+        p.color = 0x10FF5A1F
+        c.drawCircle(w * 0.12f, h * 0.44f, dp(120f), p)
+        p.color = 0x0CFF8A2A
+        c.drawCircle(w * 0.90f, h * 0.66f, dp(150f), p)
+
+        // силуэт леса
+        p.color = 0x33000000
         val path = Path()
         val base = h * 0.92f
         var i = 0
-        while (i < 9) {
-            val bx = w * (i + 0.5f) / 9f
-            val bw = dp(34f) + (i % 3) * dp(6f)
+        while (i < 11) {
+            val bx = w * (i + 0.5f) / 11f
+            val bw = dp(26f) + (i % 3) * dp(7f)
             path.moveTo(bx - bw, base)
-            path.lineTo(bx, base - dp(72f) - (i % 4) * dp(14f))
+            path.lineTo(bx, base - dp(58f) - (i % 4) * dp(13f))
             path.lineTo(bx + bw, base)
             path.close()
             i++
         }
         c.drawPath(path, p)
 
-        // парящие монеты
+        // тыквы на земле
+        val pumpkinY = h - dp(14f)
         for (k in 0 until 5) {
-            val px = w * (0.12f + k * 0.19f) + sin(time * 0.5f + k) * dp(10f)
-            val py = h * 0.42f + cos(time * 0.7f + k * 1.7f) * dp(16f)
-            p.alpha = 40
-            Art.coin(c, px, py, dp(7f) + (k % 2) * dp(3f), p)
+            p.alpha = 70 + (k % 2) * 20
+            Art.pumpkin(c, w * (0.10f + k * 0.20f), pumpkinY, dp(13f) + (k % 3) * dp(2f), p)
             p.alpha = 255
         }
+
+        // угольки
+        for (k in 0 until 14) {
+            val ph = time * 0.35f + k * 0.9f
+            val ex = w * ((k * 41 % 91) / 91f) + sin(ph) * dp(14f)
+            val ey = h - ((time * dp(9f) + k * dp(37f)) % (h * 0.75f))
+            p.color = 0x66FF8A3C
+            p.alpha = (60 + (sin(ph * 2f) * 30f)).toInt().coerceIn(20, 120)
+            c.drawCircle(ex, ey, dp(1.6f), p)
+        }
+        p.alpha = 255
         p.style = Paint.Style.FILL
     }
 
@@ -1055,51 +1302,77 @@ class GameView(context: Context, private val store: Store) : View(context) {
 
         txt("@${store.user ?: "игрок"}", dp(18f), dp(30f) + insTop, dp(12f), DIM, false)
         coinPill(c, w - dp(16f), dp(12f) + insTop, store.coins)
+        drawUpdateBanner(c)
 
-        val tSize = min(dp(52f), w * 0.135f)
-        val t1 = "ГРАММ"
-        val t2 = ".io"
-        pb.textSize = tSize
-        val tw = pb.measureText(t1) + pb.measureText(t2)
-        val tx = w / 2f - tw / 2f
-        val ty = h * 0.155f
-        txt(t1, tx, ty, tSize, TEXT, true)
-        txt(t2, tx + pb.measureText(t1), ty, tSize, ACCENT, true)
-        txt("выживание · онлайн", w / 2f, ty + dp(24f), dp(12f), DIM, false, Paint.Align.CENTER)
+        val tSize = min(dp(50f), w * 0.145f)
+        txt("ТЫКВА", w / 2f, h * 0.235f + dp(2f), tSize, 0x66000000, true, Paint.Align.CENTER)
+        txt("ТЫКВА", w / 2f, h * 0.235f, tSize, ACCENT, true, Paint.Align.CENTER)
+        txt("ХЭЛЛОУИН · ВЫЖИВАНИЕ · ОНЛАЙН", w / 2f, h * 0.235f + dp(22f), dp(10f), GOLD, true, Paint.Align.CENTER)
 
-        val charY = h * 0.40f
-        p.color = 0x33000000
+        val charY = h * 0.42f
+        p.color = 0x44000000
         c.drawOval(w / 2f - dp(76f), charY + dp(44f), w / 2f + dp(76f), charY + dp(66f), p)
         val bob = sin(time * 1.8f) * dp(3f)
         val selected = store.selectedSkin.coerceIn(0, SKINS.size - 1)
-        Art.character(c, SKINS[selected], w / 2f, charY + bob, dp(38f), -0.18f + sin(time * 0.9f) * 0.12f, 3, p)
-        txt(SKINS[selected].name, w / 2f, charY + dp(82f), dp(13f), TEXT, true, Paint.Align.CENTER)
-        txt("скин", w / 2f, charY + dp(99f), dp(9f), DIM, false, Paint.Align.CENTER)
+        Art.character(
+            c, SKINS[selected], w / 2f, charY + bob, dp(38f),
+            -0.18f + sin(time * 0.9f) * 0.12f, 5, p, store.selectedWeaponSkin
+        )
+        txt(SKINS[selected].name, w / 2f, charY + dp(80f), dp(13f), TEXT, true, Paint.Align.CENTER)
+        if (selected >= 10) {
+            txt("хэллоуин-скин", w / 2f, charY + dp(96f), dp(9f), ACCENT, false, Paint.Align.CENTER)
+        } else {
+            txt("скин", w / 2f, charY + dp(96f), dp(9f), DIM, false, Paint.Align.CENTER)
+        }
 
         arrow(c, w / 2f - dp(104f), charY, "‹", "prevskin")
         arrow(c, w / 2f + dp(104f), charY, "›", "nextskin")
 
         val bw = min(w - dp(56f), dp(300f))
         val bh = dp(58f)
-        val playR = RectF((w - bw) / 2f, h * 0.60f, (w + bw) / 2f, h * 0.60f + bh)
+        val playR = RectF((w - bw) / 2f, h * 0.64f, (w + bw) / 2f, h * 0.64f + bh)
         primaryButton(c, playR, "ИГРАТЬ")
         menuButtons.add(Btn("play", playR))
 
-        val gap = dp(10f)
-        val sw = (bw - gap) / 2f
+        val gap = dp(9f)
+        val sw = (bw - gap * 2f) / 3f
         val sy = playR.bottom + dp(12f)
-        val skinR = RectF((w - bw) / 2f, sy, (w - bw) / 2f + sw, sy + dp(44f))
-        val logoutR = RectF((w + bw) / 2f - sw, sy, (w + bw) / 2f, sy + dp(44f))
-        secondaryButton(c, skinR, "СКИНЫ")
+        val skinsR = RectF((w - bw) / 2f, sy, (w - bw) / 2f + sw, sy + dp(44f))
+        val weaponsR = RectF(skinsR.right + gap, sy, skinsR.right + gap + sw, sy + dp(44f))
+        val logoutR = RectF(weaponsR.right + gap, sy, weaponsR.right + gap + sw, sy + dp(44f))
+        secondaryButton(c, skinsR, "СКИНЫ")
+        secondaryButton(c, weaponsR, "ОРУЖИЕ")
         secondaryButton(c, logoutR, "ВЫЙТИ")
-        menuButtons.add(Btn("skins", skinR))
+        menuButtons.add(Btn("skins", skinsR))
+        menuButtons.add(Btn("wskins", weaponsR))
         menuButtons.add(Btn("logout", logoutR))
 
-        val kills = store.totalKills()
-        txt("сезон: $kills убийств", w / 2f, h - dp(26f), dp(10.5f), DIM, false, Paint.Align.CENTER)
+        val best = if (store.totalKills() > 0) "сезон: ${store.totalKills()} убийств" else "сезон только начался"
+        txt(best, w / 2f, h - dp(26f), dp(10.5f), DIM, false, Paint.Align.CENTER)
         p.color = if (net.connected) GREEN else 0xFFFF8A5C.toInt()
         c.drawCircle(dp(18f), h - dp(22f), dp(3.5f), p)
         txt(if (net.connected) "онлайн" else "офлайн", dp(26f), h - dp(18f), dp(9.5f), DIM, false)
+        txt("ТЫКВА $APP_VERSION", w - dp(16f), h - dp(18f), dp(9.5f), DIM, false, Paint.Align.RIGHT)
+    }
+
+    private fun drawUpdateBanner(c: Canvas) {
+        val info = updateInfo ?: return
+        val w = width.toFloat()
+        val left = dp(16f)
+        val right = min(w - dp(16f), left + dp(330f))
+        val top = dp(48f) + insTop
+        val bottom = top + dp(30f)
+        panel(c, left, top, right, bottom, dp(15f), 0xDD2A1818.toInt(), 0x99FF8A3C.toInt())
+        p.color = ACCENT
+        c.drawCircle(left + dp(14f), top + dp(15f), dp(4f), p)
+        val label = when {
+            updateStatus.isNotEmpty() -> updateStatus
+            updateBusy -> "Скачиваю обновление…"
+            else -> "ОБНОВА ${info.version} · СКАЧАТЬ"
+        }
+        txt(label, left + dp(24f), top + dp(19f), dp(10f), TEXT, true)
+        txt("↓", right - dp(14f), top + dp(20f), dp(14f), ACCENT, true, Paint.Align.RIGHT)
+        if (!updateBusy) menuButtons.add(Btn("update", RectF(left, top, right, bottom)))
     }
 
     private fun drawServers(c: Canvas) {
@@ -1121,28 +1394,28 @@ class GameView(context: Context, private val store: Store) : View(context) {
         for (i in 0 until 5) {
             val t = top + i * (cardH + gap)
             val r = RectF(left, t, right, t + cardH)
-            panel(c, r.left, r.top, r.right, r.bottom, dp(14f), 0xE6112018.toInt(), 0x55466B4D)
+            panel(c, r.left, r.top, r.right, r.bottom, dp(14f), 0xE61C1214.toInt(), 0x554A2A2A)
             val cy = r.centerY()
-            p.color = 0xFF1E3A29.toInt()
+            p.color = 0xFF3A1E18.toInt()
             c.drawCircle(left + dp(34f), cy, dp(24f), p)
             p.style = Paint.Style.STROKE
             p.strokeWidth = dp(1.2f)
-            p.color = 0x66466B4D
+            p.color = if (i == 3) 0x99FF6B2C.toInt() else 0x554A2A2A
             c.drawCircle(left + dp(34f), cy, dp(24f), p)
             p.style = Paint.Style.FILL
             val info = SERVERS[i]
             txt("${i + 1}", left + dp(34f), cy + dp(6f), dp(18f), ACCENT, true, Paint.Align.CENTER)
-            txt(info.name, left + dp(68f), cy - dp(12f), dp(16f), TEXT, true)
-            txt("${info.region} · ${info.tag}", left + dp(68f), cy + dp(5f), dp(9.5f), DIM)
+            txt(info.name, left + dp(68f), cy - dp(12f), dp(15f), TEXT, true)
+            txt("${info.region} · ${info.tag}", left + dp(68f), cy + dp(4f), dp(9f), DIM)
             val on = online(i)
             txt(
-                "${info.region}  ·  ${Wipe.label(i)}  ·  ${Wipe.left(i, System.currentTimeMillis())}",
-                left + dp(68f), cy + dp(22f), dp(9f), 0xFF8FAF91.toInt()
+                "${Wipe.label(i)} · ${Wipe.left(i, System.currentTimeMillis())}",
+                left + dp(68f), cy + dp(21f), dp(8.5f), 0xFFC08A72.toInt()
             )
             p.color = if (on > 0) GREEN else DIM
-            c.drawCircle(right - dp(56f), cy - dp(12f), dp(3f), p)
-            txt("$on", right - dp(48f), cy - dp(9f), dp(10f), TEXT, true)
-            txt("онлайн", right - dp(26f), cy - dp(9f), dp(8.5f), DIM, false, Paint.Align.RIGHT)
+            c.drawCircle(right - dp(54f), cy - dp(12f), dp(3f), p)
+            txt("$on", right - dp(46f), cy - dp(9f), dp(10f), TEXT, true)
+            txt("онлайн", right - dp(24f), cy - dp(9f), dp(8.5f), DIM, false, Paint.Align.RIGHT)
             txt("ИГРАТЬ ›", right - dp(14f), cy + dp(18f), dp(11f), ACCENT, true, Paint.Align.RIGHT)
             txt("убийств: ${store.kills(i)}", right - dp(14f), cy + dp(34f), dp(8.5f), DIM, false, Paint.Align.RIGHT)
             menuButtons.add(Btn("srv$i", r))
@@ -1155,14 +1428,14 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val h = height.toFloat()
         backButton(c, "back")
         txt("СКИНЫ", w / 2f, dp(36f) + insTop, dp(22f), TEXT, true, Paint.Align.CENTER)
-        txt("монеты за бои и ящики", w / 2f, dp(53f) + insTop, dp(10f), DIM, false, Paint.Align.CENTER)
+        txt("12 скинов · два хэллоуинских", w / 2f, dp(53f) + insTop, dp(10f), DIM, false, Paint.Align.CENTER)
         coinPill(c, w - dp(12f), dp(10f) + insTop, store.coins)
 
         val top = dp(70f) + insTop
-        val gap = dp(9f)
+        val gap = dp(8f)
         val cols = 2
         val cellW = (w - dp(14f) * 2 - gap) / cols
-        val cellH = ((h - top - dp(16f) - gap * 4) / 5f).coerceIn(dp(62f), dp(110f))
+        val cellH = ((h - top - dp(30f) - gap * 5f) / 6f).coerceIn(dp(48f), dp(104f))
         for (i in SKINS.indices) {
             val col = i % 2
             val row = i / 2
@@ -1171,21 +1444,29 @@ class GameView(context: Context, private val store: Store) : View(context) {
             val r = RectF(l, t, l + cellW, t + cellH)
             val owned = store.ownsSkin(i)
             val isSel = store.selectedSkin == i
+            val halloween = i >= 10
             panel(
                 c, r.left, r.top, r.right, r.bottom, dp(13f),
-                if (isSel) 0xEE1D3223.toInt() else 0xDD112018.toInt(),
-                if (isSel) ACCENT else 0x55466B4D
+                if (isSel) 0xEE2E1818.toInt() else 0xDD180E0F.toInt(),
+                when {
+                    isSel -> ACCENT
+                    halloween -> 0x99FF6B2C.toInt()
+                    else -> 0x554A2A2A
+                }
             )
-            val prevR = min(dp(21f), cellH * 0.31f)
-            Art.character(c, SKINS[i], l + dp(28f), r.centerY() - dp(2f), prevR, -0.2f, 3, p)
-            txt(SKINS[i].name, l + dp(52f), r.centerY() - dp(6f), dp(12.5f), TEXT, true)
+            val prevR = min(dp(20f), cellH * 0.31f)
+            Art.character(c, SKINS[i], l + dp(28f), r.centerY() - dp(2f), prevR, -0.2f, 5, p, store.selectedWeaponSkin)
+            txt(SKINS[i].name, l + dp(50f), r.centerY() - dp(4f), dp(11.5f), if (halloween) GOLD else TEXT, true)
+            if (halloween) {
+                txt("HW", r.right - dp(7f), r.top + dp(13f), dp(7.5f), ACCENT, true, Paint.Align.RIGHT)
+            }
             val statusY = r.centerY() + dp(13f)
             when {
-                isSel -> txt("НАДЕТ", l + dp(52f), statusY, dp(9.5f), ACCENT, true)
-                owned -> txt("ОТКРЫТ", l + dp(52f), statusY, dp(9.5f), GREEN, true)
+                isSel -> txt("НАДЕТ", l + dp(50f), statusY, dp(9f), ACCENT, true)
+                owned -> txt("ОТКРЫТ", l + dp(50f), statusY, dp(9f), GREEN, true)
                 else -> {
-                    Art.coin(c, l + dp(57f), statusY - dp(3f), dp(5.5f), p)
-                    txt(fmt(SKINS[i].price), l + dp(65f), statusY, dp(10f), GOLD, true)
+                    Art.coin(c, l + dp(54f), statusY - dp(3f), dp(5f), p)
+                    txt(fmt(SKINS[i].price), l + dp(62f), statusY, dp(9.5f), GOLD, true)
                 }
             }
             if (!owned && store.coins < SKINS[i].price) {
@@ -1194,12 +1475,68 @@ class GameView(context: Context, private val store: Store) : View(context) {
             }
             menuButtons.add(Btn("skin$i", r))
         }
-        txt("скины открываются за монеты и остаются навсегда", w / 2f, h - dp(14f), dp(9f), DIM, false, Paint.Align.CENTER)
+        txt("скины остаются навсегда и синхронизируются с облаком", w / 2f, h - dp(14f), dp(8.5f), DIM, false, Paint.Align.CENTER)
     }
+
+    private fun drawWeaponSkins(c: Canvas) {
+        menuButtons.clear()
+        val w = width.toFloat()
+        val h = height.toFloat()
+        backButton(c, "back")
+        txt("СКИНЫ ОРУЖИЯ", w / 2f, dp(36f) + insTop, dp(21f), TEXT, true, Paint.Align.CENTER)
+        txt("визуал · видно всем в бою", w / 2f, dp(53f) + insTop, dp(10f), DIM, false, Paint.Align.CENTER)
+        coinPill(c, w - dp(12f), dp(10f) + insTop, store.coins)
+
+        val top = dp(76f) + insTop
+        val gap = dp(10f)
+        val cellW = (w - dp(28f) - gap) / 2f
+        val cellH = min(dp(132f), (h - top - dp(64f) - gap) / 2f).coerceAtLeast(dp(96f))
+        for (i in WEAPON_SKINS.indices) {
+            val col = i % 2
+            val row = i / 2
+            val l = dp(14f) + col * (cellW + gap)
+            val t = top + row * (cellH + gap)
+            val r = RectF(l, t, l + cellW, t + cellH)
+            val owned = store.ownsWeaponSkin(i)
+            val isSel = store.selectedWeaponSkin == i
+            panel(
+                c, r.left, r.top, r.right, r.bottom, dp(14f),
+                if (isSel) 0xEE2E1818.toInt() else 0xDD180E0F.toInt(),
+                if (isSel) ACCENT else 0x554A2A2A
+            )
+            val ws = WEAPON_SKINS[i]
+            p.color = ws.wood
+            c.drawCircle(r.centerX(), t + dp(44f), dp(31f), p)
+            p.color = ws.metal
+            c.drawCircle(r.centerX(), t + dp(44f), dp(25f), p)
+            Art.weapon(c, 4, r.centerX(), t + dp(44f), min(cellW * 0.62f, dp(78f)), p, i)
+            txt(ws.name, r.centerX(), r.bottom - dp(30f), dp(12f), if (isSel) ACCENT else TEXT, true, Paint.Align.CENTER)
+            val statusY = r.bottom - dp(12f)
+            when {
+                isSel -> txt("ВЫБРАНО", r.centerX(), statusY, dp(9f), ACCENT, true, Paint.Align.CENTER)
+                owned -> txt("ОТКРЫТО", r.centerX(), statusY, dp(9f), GREEN, true, Paint.Align.CENTER)
+                else -> {
+                    val label = fmt(ws.price)
+                    pt.textSize = dp(9.5f)
+                    val tw = pt.measureText(label)
+                    Art.coin(c, r.centerX() - tw / 2f - dp(6f), statusY - dp(3f), dp(5f), p)
+                    txt(label, r.centerX() + dp(4f), statusY, dp(9.5f), GOLD, true, Paint.Align.LEFT)
+                }
+            }
+            if (!owned && store.coins < ws.price) {
+                p.color = 0x33000000
+                c.drawRoundRect(r.left, r.top, r.right, r.bottom, dp(14f), dp(14f), p)
+            }
+            menuButtons.add(Btn("wsk$i", r))
+        }
+        txt("скин оружия не меняет урон — только внешний вид", w / 2f, h - dp(14f), dp(8.5f), DIM, false, Paint.Align.CENTER)
+    }
+
+    // ------------------------------------------------------------- виджеты
 
     private fun coinPill(c: Canvas, right: Float, top: Float, coins: Int) {
         val pw = dp(108f)
-        panel(c, right - pw, top, right, top + dp(34f), dp(17f), 0xCC14241B.toInt(), STROKE)
+        panel(c, right - pw, top, right, top + dp(34f), dp(17f), 0xCC1C1214.toInt(), STROKE)
         Art.coin(c, right - pw + dp(19f), top + dp(17f), dp(10f), p)
         txt(fmt(coins), right - dp(13f), top + dp(22f), dp(14f), GOLD, true, Paint.Align.RIGHT)
     }
@@ -1207,7 +1544,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private fun backButton(c: Canvas, id: String) {
         val cx = dp(30f)
         val cy = dp(30f) + insTop
-        p.color = 0x99101C14.toInt()
+        p.color = 0x991C1214.toInt()
         c.drawCircle(cx, cy, dp(19f), p)
         p.style = Paint.Style.STROKE
         p.strokeWidth = dp(2f)
@@ -1224,7 +1561,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
     }
 
     private fun arrow(c: Canvas, x: Float, y: Float, label: String, id: String) {
-        p.color = 0x88101C14.toInt()
+        p.color = 0x881C1214.toInt()
         c.drawCircle(x, y, dp(19f), p)
         p.style = Paint.Style.STROKE
         p.strokeWidth = dp(1.2f)
@@ -1236,18 +1573,18 @@ class GameView(context: Context, private val store: Store) : View(context) {
     }
 
     private fun primaryButton(c: Canvas, r: RectF, label: String) {
-        p.color = ACCENT
-        c.drawRoundRect(r, dp(16f), dp(16f), p)
-        p.color = 0x33000000
+        p.color = 0x66000000
         c.drawRoundRect(r.left, r.top + dp(4f), r.right, r.bottom, dp(16f), dp(16f), p)
         p.color = ACCENT
         c.drawRoundRect(r, dp(16f), dp(16f), p)
-        txt(label, r.centerX(), r.centerY() + dp(6f), dp(16f), 0xFF0C150F.toInt(), true, Paint.Align.CENTER)
+        p.color = 0x33FFFFFF
+        c.drawRoundRect(r.left + dp(4f), r.top + dp(3f), r.right - dp(4f), r.top + dp(15f), dp(9f), dp(9f), p)
+        txt(label, r.centerX(), r.centerY() + dp(6f), dp(16f), 0xFF160B08.toInt(), true, Paint.Align.CENTER)
     }
 
     private fun secondaryButton(c: Canvas, r: RectF, label: String) {
-        panel(c, r.left, r.top, r.right, r.bottom, dp(13f), 0xDD15251C.toInt(), STROKE)
-        txt(label, r.centerX(), r.centerY() + dp(5f), dp(13f), TEXT, true, Paint.Align.CENTER)
+        panel(c, r.left, r.top, r.right, r.bottom, dp(13f), 0xDD211416.toInt(), STROKE)
+        txt(label, r.centerX(), r.centerY() + dp(5f), dp(12.5f), TEXT, true, Paint.Align.CENTER)
     }
 
     private fun panel(c: Canvas, l: Float, t: Float, r: Float, b: Float, rad: Float, fill: Int, stroke: Int) {
@@ -1309,8 +1646,10 @@ class GameView(context: Context, private val store: Store) : View(context) {
         when {
             id == "play" -> screen = Scr.SERVERS
             id == "skins" -> screen = Scr.SKINS
+            id == "wskins" -> screen = Scr.WSKINS
             id == "back" -> screen = Scr.MENU
             id == "logout" -> onLogout?.invoke()
+            id == "update" -> startUpdate()
             id == "prevskin" || id == "nextskin" -> {
                 val owned = store.ownedSkins().sorted()
                 if (owned.size > 1) {
@@ -1321,8 +1660,21 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 }
             }
             id.startsWith("srv") -> id.removePrefix("srv").toIntOrNull()?.let { play(it) }
+            id.startsWith("wsk") -> {
+                val index = id.removePrefix("wsk").toIntOrNull() ?: return
+                if (index !in WEAPON_SKINS.indices) return
+                if (store.ownsWeaponSkin(index)) {
+                    store.selectWeaponSkin(index)
+                    toast("Скин оружия: ${WEAPON_SKINS[index].name}")
+                } else if (store.buyWeaponSkin(index)) {
+                    toast("Куплено: ${WEAPON_SKINS[index].name}")
+                } else {
+                    toast("Не хватает ${fmt(WEAPON_SKINS[index].price - store.coins)} монет")
+                }
+            }
             id.startsWith("skin") -> {
                 val index = id.removePrefix("skin").toIntOrNull() ?: return
+                if (index !in SKINS.indices) return
                 if (store.ownsSkin(index)) {
                     store.selectSkin(index)
                     toast("Скин: ${SKINS[index].name}")
@@ -1332,6 +1684,38 @@ class GameView(context: Context, private val store: Store) : View(context) {
                     toast("Не хватает ${fmt(SKINS[index].price - store.coins)} монет")
                 }
             }
+        }
+    }
+
+    private fun startUpdate() {
+        val info = updateInfo ?: return
+        if (updateBusy) return
+        val url = info.url
+        if (!url.endsWith(".apk", true)) {
+            openPage(if (info.page.isNotEmpty()) info.page else url)
+            return
+        }
+        updateBusy = true
+        updateStatus = "Скачиваю ${info.version}…"
+        try {
+            downloadedId = Updater.download(context, url, info.version)
+            toast("Обновление качается в Downloads")
+        } catch (_: Exception) {
+            updateBusy = false
+            updateStatus = ""
+            toast("Не удалось скачать обновление")
+        }
+        invalidate()
+    }
+
+    private fun openPage(url: String) {
+        if (url.isEmpty()) return
+        try {
+            val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(i)
+        } catch (_: Exception) {
+            toast("Не удалось открыть ссылку")
         }
     }
 
@@ -1353,6 +1737,12 @@ class GameView(context: Context, private val store: Store) : View(context) {
                     return
                 }
 
+                if (buildOpen) {
+                    val id = hitHud(x, y)
+                    if (id != null) handleHud(id)
+                    return
+                }
+
                 val btn = hitHud(x, y)
                 if (btn != null) {
                     handleHud(btn)
@@ -1370,6 +1760,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 }
             }
             MotionEvent.ACTION_MOVE -> {
+                if (paused || dead || buildOpen) return
                 for (i in 0 until e.pointerCount) {
                     val pid = e.getPointerId(i)
                     val x = e.getX(i)
@@ -1450,17 +1841,41 @@ class GameView(context: Context, private val store: Store) : View(context) {
         }
     }
 
+    private fun act(msg: String, ok: String) {
+        if (msg.isEmpty()) {
+            if (ok.isNotEmpty()) toast(ok)
+        } else {
+            toast(msg)
+        }
+    }
+
+    private fun craftAction(w: World, kind: String) {
+        val msg = w.craft(kind)
+        store.coins = w.me.coins
+        store.toolLevel = w.me.toolLevel
+        toast(msg.ifEmpty { "Готово" })
+    }
+
     private fun handleHud(id: String) {
         val w = world ?: return
         when {
-            id == "menu" -> paused = true
+            id == "menu" -> {
+                paused = true
+                buildOpen = false
+                firing = false
+                moveX = 0f
+                moveY = 0f
+            }
             id == "resume" -> paused = false
             id == "exit" || id == "dead_exit" -> exitGame()
             id == "respawn" -> {
                 w.respawnMe()
                 w.me.coins = store.coins
+                w.me.toolLevel = store.toolLevel
+                w.me.weaponSkin = store.selectedWeaponSkin
                 dead = false
                 paused = false
+                buildOpen = false
                 aimAngle = 0f
                 moveX = 0f
                 moveY = 0f
@@ -1468,17 +1883,28 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 rightPointer = -1
                 sendState()
             }
-            id == "wall" -> {
-                val msg = w.wallAction()
-                if (msg.isNotEmpty()) toast(msg)
+            id == "build" -> {
+                buildOpen = !buildOpen
+                if (buildOpen) {
+                    firing = false
+                    moveX = 0f
+                    moveY = 0f
+                    leftPointer = -1
+                    rightPointer = -1
+                }
             }
-            id == "bench" -> {
-                val msg = w.benchAction()
-                if (msg.isNotEmpty()) toast(msg)
-            }
+            id == "build_close" -> buildOpen = false
+            id == "build_wall" -> act(w.wallAction(), "Стена построена")
+            id == "build_pumpkin" -> act(w.pumpkinAction(), "Тыква поставлена")
+            id == "build_bench" -> act(w.benchAction(), "")
+            id == "craft_armor" -> craftAction(w, "armor")
+            id == "craft_tnt" -> craftAction(w, "tnt")
+            id == "craft_ammo" -> craftAction(w, "ammo")
+            id == "craft_rocket" -> craftAction(w, "rocket")
+            id == "craft_upgrade" -> craftAction(w, "upgrade")
             id.startsWith("slot") -> {
                 val i = id.removePrefix("slot").toIntOrNull() ?: return
-                w.me.weapon = i
+                if (i in World.WEAPONS.indices) w.me.weapon = i
             }
         }
     }
