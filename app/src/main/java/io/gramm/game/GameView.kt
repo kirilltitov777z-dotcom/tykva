@@ -417,7 +417,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         if (!paused) {
             w.update(dt, if (w.me.alive) moveX else 0f, if (w.me.alive) moveY else 0f, firing && w.me.alive)
             stateTimer += dt
-            if (stateTimer > 0.12f || !w.me.alive) {
+            if (stateTimer > 0.12f) {
                 stateTimer = 0f
                 sendState()
             }
