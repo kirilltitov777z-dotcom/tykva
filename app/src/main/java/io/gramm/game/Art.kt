@@ -376,6 +376,30 @@ object Art {
                 c.drawRect(-6f, -16f, 6f, 16f, p)
                 c.drawRect(-18f, -6f, 18f, 6f, p)
             }
+            9 -> {
+                // дуло
+                p.color = 0xFF8D9188.toInt()
+                c.drawRoundRect(-32f, -14f, -10f, 28f, 4f, 4f, p)
+                c.drawRoundRect(-10f, -16f, -2f, 24f, 3f, 3f, p)
+                p.color = 0xFF9AA4AA.toInt()
+                c.drawRoundRect(-2f, -12f, 46f, 8f, 4f, 4f, p)
+                p.color = 0xFF3A3324.toInt()
+                c.drawRoundRect(8f, 6f, 30f, 22f, 4f, 4f, p)
+                p.color = 0xFFFFD95C.toInt()
+                c.drawRoundRect(12f, 8f, 8f, 16f, 2f, 2f, p)
+                c.drawRoundRect(24f, 10f, 6f, 12f, 2f, 2f, p)
+            }
+            10 -> {
+                // лук
+                p.color = 0xFF7A5230.toInt()
+                c.drawLine(-34f, -16f, 20f, -6f, p)
+                p.color = 0xFF9AA4AA.toInt()
+                c.drawRoundRect(20f, -8f, 34f, 5f, 2f, 2f, p)
+                p.color = 0xFFFFD95C.toInt()
+                c.drawCircle(48f, -5f, 5f, p)
+                p.color = 0xFF9AA4AA.toInt()
+                c.drawCircle(48f, -5f, 2f, p)
+            }
         }
         c.restore()
     }

@@ -98,8 +98,8 @@ class World(
     private val playerSkin: Int
 ) {
     companion object {
-        const val W = 2800f
-        const val H = 2800f
+        const val W = 14000f
+        const val H = 14000f
 
         const val T_TREE = 0
         const val T_ROCK = 1
@@ -130,7 +130,9 @@ class World(
             Wpn("Револьвер", 1, 44f, 0.55f, 1600f, 760f),
             Wpn("Базука", 2, 55f, 1.55f, 660f, 900f),
             Wpn("Взрывчатка", 4, 80f, 1.35f, 500f, 560f),
-            Wpn("Аптечка", 3, 0f, 1.10f, 0f, 0f)
+            Wpn("Аптечка", 3, 0f, 1.10f, 0f, 0f),
+            Wpn("Дуло", 6, 85f, 0.80f, 520f, 430f),
+            Wpn("Лук", 5, 22f, 0.95f, 300f, 180f)
         )
     }
 
@@ -224,7 +226,7 @@ class World(
     private fun generate() {
         var made = 0
         var guard = 0
-        while (made < 300 && guard < 4000) {
+        while (made < 90 && guard < 2500) {
             guard++
             val x = 90f + rnd.nextFloat() * (W - 180f)
             val y = 90f + rnd.nextFloat() * (H - 180f)
@@ -243,7 +245,7 @@ class World(
 
         var crates = 0
         guard = 0
-        while (crates < 46 && guard < 3000) {
+        while (crates < 18 && guard < 2000) {
             guard++
             val x = 110f + rnd.nextFloat() * (W - 220f)
             val y = 110f + rnd.nextFloat() * (H - 220f)
@@ -256,7 +258,7 @@ class World(
 
         var barrels = 0
         guard = 0
-        while (barrels < 30 && guard < 3000) {
+        while (barrels < 12 && guard < 2000) {
             guard++
             val x = 120f + rnd.nextFloat() * (W - 240f)
             val y = 120f + rnd.nextFloat() * (H - 240f)
@@ -268,7 +270,7 @@ class World(
         // хэллоуинские тыквы по всему лесу
         var pumpkins = 0
         guard = 0
-        while (pumpkins < 38 && guard < 4000) {
+        while (pumpkins < 12 && guard < 3000) {
             guard++
             val x = 100f + rnd.nextFloat() * (W - 200f)
             val y = 100f + rnd.nextFloat() * (H - 200f)
@@ -329,7 +331,7 @@ class World(
     }
 
     private fun botName(): String {
-        val names = arrayOf("Игорек", "Тыквач", "Соня", "Клещ", "Барсук", "Ворон", "Сойка", "Мох", "Пень", "Лось", "Филин", "Культя")
+        val names = arrayOf("Волк", "Бык", "Енот", "Лось", "Филин", "Медведь", "Олень", "Барсук", "Тигр", "Еж", "Кабан", "Кот")
         return names[rnd.nextInt(names.size)] + (100 + rnd.nextInt(899))
     }
 
@@ -887,6 +889,28 @@ class World(
                 if (p.isMe) pop(p.x, p.y - 44f, "+45 HP", 0xFF8CE0A0.toInt())
                 events.shot(p)
             }
+            6 -> {
+                // дуло: 5 выстрелов в цель
+                if (p.fireCd > 0f) return
+                if (p.ammoT <= 0) return
+                p.fireCd = w.rate
+                p.ammoT--
+                val base = p.aim
+                for (i in -2..2) {
+                    val a = base + i * 0.10f
+                    bullets.add(Bullet(p.x + cos(a) * 30f, p.y + sin(a) * 30f, cos(a) * w.speed, sin(a) * w.speed, w.dmg, p.id, false, false, 1.3f))
+                }
+                muzzle(p)
+                events.shot(p)
+            }
+            5 -> {
+                // лук
+                if (p.fireCd > 0f || p.ammoT <= 0) return
+                p.fireCd = w.rate
+                p.ammoT--
+                spawnBullet(p, w, 0.9f)
+                events.shot(p)
+            }
         }
     }
 
@@ -896,7 +920,6 @@ class World(
         val sy = p.y + sin(a) * 30f
         bullets.add(Bullet(sx, sy, cos(a) * w.speed, sin(a) * w.speed, w.dmg, p.id, false, false, 1.1f))
         muzzle(p)
-        if (w.dmg > 30f) shake = max(shake, 2f)
     }
 
     private fun spawnRocket(p: P, w: Wpn) {

@@ -891,7 +891,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         stickR = min(dp(58f), w * 0.17f)
         lsX = dp(14f) + stickR
         rsX = w - dp(14f) - stickR
-        hotbarSlot = min(dp(42f), (w - dp(16f) - dp(4f) * 8f) / 9f)
+        hotbarSlot = min(dp(42f), (w - dp(16f) - dp(4f) * (8f * (World.WEAPONS.size - 1))) / World.WEAPONS.size)
         hotbarTop = h - dp(8f) - hotbarSlot
         lsY = hotbarTop - dp(13f) - stickR
         rsY = lsY
@@ -908,7 +908,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         }
 
         val gap = dp(4f)
-        val total = hotbarSlot * 9f + gap * 8f
+        val total = hotbarSlot * World.WEAPONS.size + gap * (World.WEAPONS.size - 1)
         val left = (w - total) / 2f
         for (i in 0 until World.WEAPONS.size) {
             val l = left + i * (hotbarSlot + gap)
@@ -1026,6 +1026,8 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 6 -> { ammo = "${w.me.ammoR}"; ammoLow = w.me.ammoR <= 0 }
                 7 -> { ammo = "x${w.me.grenades}"; ammoLow = w.me.grenades <= 0 }
                 8 -> { ammo = "x${w.me.meds}"; ammoLow = w.me.meds <= 0 }
+                9 -> { ammo = "${w.me.ammoT}"; ammoLow = w.me.ammoT <= 0 }
+                10 -> { ammo = "${w.me.ammoT}"; ammoLow = w.me.ammoT <= 0 }
             }
             if (ammo.isNotEmpty()) {
                 txt(ammo, r.right - dp(3f), r.bottom - dp(3f), dp(8f), if (ammoLow) RED else TEXT, true, Paint.Align.RIGHT)
@@ -1315,7 +1317,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val bob = sin(time * 1.8f) * dp(3f)
         val selected = store.selectedSkin.coerceIn(0, SKINS.size - 1)
         Art.character(
-            c, SKINS[selected], w / 2f, charY + bob, dp(38f),
+            c, SKINS[selected], w / 2f, charY + bob, dp(30f),
             -0.18f + sin(time * 0.9f) * 0.12f, 5, p, store.selectedWeaponSkin
         )
         txt(SKINS[selected].name, w / 2f, charY + dp(80f), dp(13f), TEXT, true, Paint.Align.CENTER)
@@ -1454,7 +1456,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
                     else -> 0x554A2A2A
                 }
             )
-            val prevR = min(dp(20f), cellH * 0.31f)
+            val prevR = min(dp(20f), cellH * 0.24f)
             Art.character(c, SKINS[i], l + dp(28f), r.centerY() - dp(2f), prevR, -0.2f, 5, p, store.selectedWeaponSkin)
             txt(SKINS[i].name, l + dp(50f), r.centerY() - dp(4f), dp(11.5f), if (halloween) GOLD else TEXT, true)
             if (halloween) {
@@ -1509,7 +1511,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
             c.drawCircle(r.centerX(), t + dp(44f), dp(31f), p)
             p.color = ws.metal
             c.drawCircle(r.centerX(), t + dp(44f), dp(25f), p)
-            Art.weapon(c, 4, r.centerX(), t + dp(44f), min(cellW * 0.62f, dp(78f)), p, i)
+            Art.weapon(c, 4, r.centerX(), t + dp(44f), min(cellW * 0.62f, dp(64f)), p, i)
             txt(ws.name, r.centerX(), r.bottom - dp(30f), dp(12f), if (isSel) ACCENT else TEXT, true, Paint.Align.CENTER)
             val statusY = r.bottom - dp(12f)
             when {
