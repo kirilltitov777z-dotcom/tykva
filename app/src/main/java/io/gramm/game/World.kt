@@ -162,7 +162,6 @@ class World(
     init {
         generate()
         spawnLocal()
-        repeat(6) { spawnBot() }
     }
 
     // ------------------------------------------------------------- генерация
