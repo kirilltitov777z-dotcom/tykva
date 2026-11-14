@@ -329,36 +329,6 @@ class World(
         placeFree(me, W / 2f, H / 2f, 0f)
     }
 
-    private fun botName(): String {
-        val names = arrayOf("Волк", "Бык", "Енот", "Лось", "Филин", "Медведь", "Олень", "Барсук", "Тигр", "Еж", "Кабан", "Кот")
-        return names[rnd.nextInt(names.size)] + (100 + rnd.nextInt(899))
-    }
-
-    private fun spawnBot() {
-        val b = P("bot_" + nextObjId++ + "_" + rnd.nextInt(9999), botName(), rnd.nextInt(SKINS.size), W / 2f, H / 2f, true, false)
-        b.weapon = when {
-            rnd.nextInt(100) < 12 -> SLOT_REVOLVER
-            rnd.nextInt(100) < 22 -> SLOT_TNT
-            rnd.nextInt(100) < 35 -> SLOT_ROCKET
-            else -> SLOT_GUN
-        }
-        b.ammoT = 99_999
-        b.ammoP = 99_999
-        b.ammoR = 99_999
-        b.grenades = 99_999
-        b.meds = 3
-        b.coins = rnd.nextInt(120)
-        b.kills = rnd.nextInt(4)
-        b.toolLevel = rnd.nextInt(3)
-        b.weaponSkin = rnd.nextInt(WEAPON_SKINS.size)
-        placeFree(b, W / 2f, H / 2f, 380f)
-        b.targetX = b.x
-        b.targetY = b.y
-        b.lastX = b.x
-        b.lastY = b.y
-        players[b.id] = b
-    }
-
     private fun placeFree(p: P, cx: Float, cy: Float, minDist: Float) {
         var tries = 0
         while (tries < 60) {
@@ -528,23 +498,7 @@ class World(
         }
 
         for (p in players.values.toList()) {
-            if (p.isBot) updateBot(p, dt)
-        }
-
-        val pli = players.entries.iterator()
-        while (pli.hasNext()) {
-            val p = pli.next().value
-            if (p.isMe || p.isBot) continue
-            p.x += (p.tx - p.x) * min(1f, dt * 12f)
-            p.y += (p.ty - p.y) * min(1f, dt * 12f)
-            p.angle = lerpAngle(p.angle, p.aim, min(1f, dt * 14f))
-            p.walk += dt * 3f
             if (!p.alive) p.deadT += dt
-            if (!p.alive && p.deadT > 8f) {
-                pli.remove()
-            } else if (System.currentTimeMillis() - p.lastSeen > 15_000L) {
-                pli.remove()
-            }
         }
 
         updateBullets(dt)
@@ -1070,122 +1024,6 @@ class World(
             burst(p.x, p.y, 0xFF8B2D2D.toInt(), 14)
             events.playerDied(p, attacker, p.attackerId, p.attackerName.ifEmpty { "лес" })
         }
-    }
-
-    // ------------------------------------------------------------------ боты
-
-    private fun updateBot(b: P, dt: Float) {
-        if (!b.alive) {
-            b.deadT += dt
-            b.fireCd = max(0f, b.fireCd - dt)
-            if (b.deadT > 8f) {
-                b.alive = true
-                b.hp = 100f
-                b.deadT = 0f
-                b.weapon = if (rnd.nextInt(100) < 22) SLOT_REVOLVER else SLOT_GUN
-                placeFree(b, W / 2f, H / 2f, 300f)
-            }
-            return
-        }
-
-        b.botCd = max(0f, b.botCd - dt)
-        b.healCd = max(0f, b.healCd - dt)
-
-        if (b.hp < 42f && b.meds > 0 && b.healCd <= 0f) {
-            b.hp = min(100f, b.hp + 35f)
-            b.meds--
-            b.healCd = 4f
-        }
-
-        var target: P? = null
-        var best = 470f
-        for (q in players.values) {
-            if (q === b || !q.alive) continue
-            if (!q.isMe && !q.isBot) continue
-            val dx = q.x - b.x
-            val dy = q.y - b.y
-            val d = sqrt(dx * dx + dy * dy)
-            if (d < best) {
-                best = d
-                target = q
-            }
-        }
-
-        if (target != null && best < 430f) {
-            val aimAt = atan2(target.y - b.y, target.x - b.x) + (rnd.nextFloat() - 0.5f) * 0.15f
-            b.aim = aimAt
-            val advance = when {
-                best > 260f -> 1f
-                best < 130f -> -0.7f
-                else -> 0.25f
-            }
-            val side = if (b.stuck > 0.5f) 0f else 0.6f
-            b.mx = cos(aimAt) * advance + cos(aimAt + 1.5708f) * side
-            b.my = sin(aimAt) * advance + sin(aimAt + 1.5708f) * side
-            if (b.weapon == SLOT_TNT || b.weapon == SLOT_ROCKET) b.weapon = SLOT_GUN
-            if (b.botCd <= 0f) {
-                b.botCd = 0.26f + rnd.nextFloat() * 0.3f
-                fire(b)
-            }
-        } else {
-            b.think -= dt
-            if (b.think <= 0f) {
-                b.think = 2.5f + rnd.nextFloat() * 4f
-                var node: Ent? = null
-                var nd = 380f
-                for (e in objects) {
-                    if (e.dead) continue
-                    if (e.type != T_TREE && e.type != T_ROCK && e.type != T_CRATE && e.type != T_PUMPKIN) continue
-                    val dx = e.x - b.x
-                    val dy = e.y - b.y
-                    val d = sqrt(dx * dx + dy * dy)
-                    if (d < nd) {
-                        nd = d
-                        node = e
-                    }
-                }
-                if (node != null && rnd.nextFloat() < 0.55f) {
-                    b.targetX = node.x
-                    b.targetY = node.y
-                } else {
-                    b.targetX = 120f + rnd.nextFloat() * (W - 240f)
-                    b.targetY = 120f + rnd.nextFloat() * (H - 240f)
-                }
-            }
-            val dx = b.targetX - b.x
-            val dy = b.targetY - b.y
-            val d = sqrt(dx * dx + dy * dy)
-            if (d < 26f) {
-                b.think = 0f
-                b.mx = 0f
-                b.my = 0f
-            } else {
-                val a = atan2(dy, dx)
-                b.aim = a
-                b.mx = cos(a)
-                b.my = sin(a)
-            }
-            if (b.botCd <= 0f && rnd.nextFloat() < 0.012f) {
-                b.botCd = 0.5f
-                fire(b)
-            }
-        }
-
-        if (b.mx != 0f || b.my != 0f) {
-            moveP(b, b.mx, b.my, dt * 225f)
-            b.walk += dt * 8f
-        }
-
-        val md = (b.x - b.lastX) * (b.x - b.lastX) + (b.y - b.lastY) * (b.y - b.lastY)
-        if (md < 1f) b.stuck += dt else b.stuck = 0f
-        if (b.stuck > 0.9f) {
-            b.targetX = 120f + rnd.nextFloat() * (W - 240f)
-            b.targetY = 120f + rnd.nextFloat() * (H - 240f)
-            b.think = 2f
-            b.stuck = 0f
-        }
-        b.lastX = b.x
-        b.lastY = b.y
     }
 
     // ------------------------------------------------------------- постройки
