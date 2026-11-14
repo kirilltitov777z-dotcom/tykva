@@ -9,8 +9,10 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.Build
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -84,6 +86,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
     private var toastAt = 0L
 
     private var bgShader: LinearGradient? = null
+    private var insTop = 0f
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pt = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -98,6 +101,13 @@ class GameView(context: Context, private val store: Store) : View(context) {
         pb.typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
         pt.textAlign = Paint.Align.LEFT
         pb.textAlign = Paint.Align.LEFT
+        setOnApplyWindowInsetsListener { _, insets ->
+            insTop = if (Build.VERSION.SDK_INT >= 30) {
+                insets.getInsets(WindowInsets.Type.displayCutout()).top.toFloat()
+            } else 0f
+            invalidate()
+            insets
+        }
         net.start()
     }
 
@@ -205,6 +215,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 j.optDouble("h", 240.0).toFloat()
             )
             "kill" -> {
+                if (j.optString("sid") == w.me.id) return
                 val bid = j.optString("bid")
                 val by = j.optString("by")
                 val vic = j.optString("vic")
@@ -250,6 +261,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
             .put("t", "kill")
             .put("by", deathKiller)
             .put("bid", killerId)
+            .put("sid", w.me.id)
             .put("vic", w.me.name)
             .put("vid", w.me.id)
         net.send(server, j)
@@ -725,7 +737,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         rsY = lsY
         hpY = lsY - stickR - dp(28f)
 
-        addHud("menu", dp(8f), dp(8f), dp(56f), dp(56f))
+        addHud("menu", dp(8f), dp(8f) + insTop, dp(56f), dp(56f) + insTop)
 
         val slot = dp(44f)
         val gap = dp(5f)
@@ -764,20 +776,20 @@ class GameView(context: Context, private val store: Store) : View(context) {
 
         // кнопка меню
         p.color = 0x990B1410.toInt()
-        c.drawCircle(dp(32f), dp(32f), dp(21f), p)
+        c.drawCircle(dp(32f), dp(32f) + insTop, dp(21f), p)
         p.style = Paint.Style.STROKE
         p.strokeWidth = dp(2f)
         p.color = 0x55FFFFFF
-        c.drawCircle(dp(32f), dp(32f), dp(21f), p)
+        c.drawCircle(dp(32f), dp(32f) + insTop, dp(21f), p)
         p.style = Paint.Style.FILL
         p.color = TEXT
-        c.drawRoundRect(dp(24f), dp(25f), dp(40f), dp(29f), 2f, 2f, p)
-        c.drawRoundRect(dp(24f), dp(32f), dp(40f), dp(36f), 2f, 2f, p)
-        c.drawRoundRect(dp(24f), dp(39f), dp(40f), dp(43f), 2f, 2f, p)
+        c.drawRoundRect(dp(24f), dp(25f) + insTop, dp(40f), dp(29f) + insTop, 2f, 2f, p)
+        c.drawRoundRect(dp(24f), dp(32f) + insTop, dp(40f), dp(36f) + insTop, 2f, 2f, p)
+        c.drawRoundRect(dp(24f), dp(39f) + insTop, dp(40f), dp(43f) + insTop, 2f, 2f, p)
 
         // монеты сверху
         val pillW = dp(122f)
-        val pillTop = dp(12f)
+        val pillTop = dp(12f) + insTop
         panel(c, widthF / 2f - pillW / 2f, pillTop, widthF / 2f + pillW / 2f, pillTop + dp(34f), dp(17f), 0xCC14241B.toInt(), STROKE)
         Art.coin(c, widthF / 2f - pillW / 2f + dp(20f), pillTop + dp(17f), dp(11f), p)
         txt(fmt(store.coins), widthF / 2f + pillW / 2f - dp(14f), pillTop + dp(22f), dp(15f), GOLD, true, Paint.Align.RIGHT)
@@ -786,7 +798,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         drawLeaderboard(c, w)
 
         // килл-фид
-        var fy = dp(58f)
+        var fy = dp(58f) + insTop
         val now = System.currentTimeMillis()
         val fi = feed.iterator()
         while (fi.hasNext()) if (now - fi.next().at > 6500L) fi.remove()
@@ -859,7 +871,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val right = width - dp(10f)
         val bw = dp(146f)
         val left = right - bw
-        val top = dp(54f)
+        val top = dp(54f) + insTop
         val rows = w.players.values
             .filter { it.alive || it.isMe }
             .sortedWith(compareByDescending<P> { it.kills }.thenByDescending { it.coins })
@@ -1041,8 +1053,8 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
 
-        txt("@${store.user ?: "игрок"}", dp(18f), dp(30f), dp(12f), DIM, false)
-        coinPill(c, w - dp(16f), dp(12f), store.coins)
+        txt("@${store.user ?: "игрок"}", dp(18f), dp(30f) + insTop, dp(12f), DIM, false)
+        coinPill(c, w - dp(16f), dp(12f) + insTop, store.coins)
 
         val tSize = min(dp(52f), w * 0.135f)
         val t1 = "ГРАММ"
@@ -1095,11 +1107,11 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
         backButton(c, "back")
-        txt("СЕРВЕРА", w / 2f, dp(36f), dp(22f), TEXT, true, Paint.Align.CENTER)
-        txt("5 миров · общий онлайн", w / 2f, dp(53f), dp(10f), DIM, false, Paint.Align.CENTER)
-        coinPill(c, w - dp(12f), dp(10f), store.coins)
+        txt("СЕРВЕРА", w / 2f, dp(36f) + insTop, dp(22f), TEXT, true, Paint.Align.CENTER)
+        txt("5 миров · общий онлайн", w / 2f, dp(53f) + insTop, dp(10f), DIM, false, Paint.Align.CENTER)
+        coinPill(c, w - dp(12f), dp(10f) + insTop, store.coins)
 
-        val top = dp(70f)
+        val top = dp(70f) + insTop
         val gap = dp(8f)
         val avail = h - top - dp(18f)
         val cardH = min(dp(96f), (avail - gap * 4) / 5f)
@@ -1142,11 +1154,11 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
         backButton(c, "back")
-        txt("СКИНЫ", w / 2f, dp(36f), dp(22f), TEXT, true, Paint.Align.CENTER)
-        txt("монеты за бои и ящики", w / 2f, dp(53f), dp(10f), DIM, false, Paint.Align.CENTER)
-        coinPill(c, w - dp(12f), dp(10f), store.coins)
+        txt("СКИНЫ", w / 2f, dp(36f) + insTop, dp(22f), TEXT, true, Paint.Align.CENTER)
+        txt("монеты за бои и ящики", w / 2f, dp(53f) + insTop, dp(10f), DIM, false, Paint.Align.CENTER)
+        coinPill(c, w - dp(12f), dp(10f) + insTop, store.coins)
 
-        val top = dp(70f)
+        val top = dp(70f) + insTop
         val gap = dp(9f)
         val cols = 2
         val cellW = (w - dp(14f) * 2 - gap) / cols
@@ -1194,7 +1206,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
 
     private fun backButton(c: Canvas, id: String) {
         val cx = dp(30f)
-        val cy = dp(30f)
+        val cy = dp(30f) + insTop
         p.color = 0x99101C14.toInt()
         c.drawCircle(cx, cy, dp(19f), p)
         p.style = Paint.Style.STROKE
