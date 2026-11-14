@@ -466,20 +466,19 @@ class World(
             if (p.isBot) updateBot(p, dt)
         }
 
-        for (p in players.values) {
+        val pi = players.entries.iterator()
+        while (pi.hasNext()) {
+            val p = pi.next().value
             if (p.isMe || p.isBot) continue
             p.x += (p.tx - p.x) * min(1f, dt * 12f)
             p.y += (p.ty - p.y) * min(1f, dt * 12f)
             p.angle = lerpAngle(p.angle, p.aim, min(1f, dt * 14f))
             p.walk += dt * 3f
-            if (!p.alive) {
-                p.deadT += dt
-                if (p.deadT > 8f) {
-                    players.remove(p.id)
-                }
-            }
-            if (System.currentTimeMillis() - p.lastSeen > 15_000L) {
-                players.remove(p.id)
+            if (!p.alive) p.deadT += dt
+            if (!p.alive && p.deadT > 8f) {
+                pi.remove()
+            } else if (System.currentTimeMillis() - p.lastSeen > 15_000L) {
+                pi.remove()
             }
         }
 
