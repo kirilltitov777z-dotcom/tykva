@@ -466,9 +466,9 @@ class World(
             if (p.isBot) updateBot(p, dt)
         }
 
-        val pi = players.entries.iterator()
-        while (pi.hasNext()) {
-            val p = pi.next().value
+        val pli = players.entries.iterator()
+        while (pli.hasNext()) {
+            val p = pli.next().value
             if (p.isMe || p.isBot) continue
             p.x += (p.tx - p.x) * min(1f, dt * 12f)
             p.y += (p.ty - p.y) * min(1f, dt * 12f)
@@ -476,9 +476,9 @@ class World(
             p.walk += dt * 3f
             if (!p.alive) p.deadT += dt
             if (!p.alive && p.deadT > 8f) {
-                pi.remove()
+                pli.remove()
             } else if (System.currentTimeMillis() - p.lastSeen > 15_000L) {
-                pi.remove()
+                pli.remove()
             }
         }
 
