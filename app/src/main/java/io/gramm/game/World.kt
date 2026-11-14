@@ -323,7 +323,7 @@ class World(
 
     private fun spawnLocal() {
         me = P("u" + UUID.randomUUID().toString().replace("-", "").take(12), playerName, playerSkin, W / 2f, H / 2f, false, true)
-        me.weapon = SLOT_GUN
+        me.weapon = 0
         me.aim = 0f
         players[me.id] = me
         placeFree(me, W / 2f, H / 2f, 0f)
@@ -369,7 +369,7 @@ class World(
         me.armor = 0f
         me.deadT = 0f
         me.kills = 0
-        me.weapon = SLOT_GUN
+        me.weapon = 0
         me.ammoT = 30
         me.ammoP = 12
         me.ammoR = 1

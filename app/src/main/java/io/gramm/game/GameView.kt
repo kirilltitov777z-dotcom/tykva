@@ -456,6 +456,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         w.me.coins = store.coins
         w.me.toolLevel = store.toolLevel
         w.me.weaponSkin = store.selectedWeaponSkin
+        w.me.weapon = 0
         world = w
         screen = Scr.GAME
         paused = false
@@ -888,16 +889,17 @@ class GameView(context: Context, private val store: Store) : View(context) {
         buildButtons.clear()
         val w = width.toFloat()
         val h = height.toFloat()
-        stickR = min(dp(58f), w * 0.17f)
-        lsX = dp(14f) + stickR
-        rsX = w - dp(14f) - stickR
-        hotbarSlot = min(dp(42f), (w - dp(16f) - dp(4f) * (8f * (World.WEAPONS.size - 1))) / World.WEAPONS.size)
-        hotbarTop = h - dp(8f) - hotbarSlot
-        lsY = hotbarTop - dp(13f) - stickR
-        rsY = lsY
-        hpY = lsY - stickR - dp(34f)
+        stickR = min(dp(56f), h * 0.28f)
 
-        addHud("menu", dp(8f), dp(8f) + insTop, dp(56f), dp(56f) + insTop)
+        // Левая стик — низ слева
+        lsX = dp(18f) + stickR
+        lsY = h - dp(18f) - stickR
+        // Правая стик — низ справа
+        rsX = w - dp(18f) - stickR
+        rsY = h - dp(18f) - stickR
+
+        // Кнопка меню — верх слева
+        addHud("menu", dp(8f), dp(8f), dp(56f), dp(56f))
 
         if (buildOpen) {
             val bl = layoutBuild()
@@ -907,6 +909,9 @@ class GameView(context: Context, private val store: Store) : View(context) {
             return
         }
 
+        // Хотбар по нижнему центру
+        hotbarSlot = min(dp(40f), (w - dp(30f) - dp(4f) * (World.WEAPONS.size - 1)) / World.WEAPONS.size)
+        hotbarTop = h - dp(10f) - hotbarSlot
         val gap = dp(4f)
         val total = hotbarSlot * World.WEAPONS.size + gap * (World.WEAPONS.size - 1)
         val left = (w - total) / 2f
@@ -916,23 +921,27 @@ class GameView(context: Context, private val store: Store) : View(context) {
             addHud("slot$i", l, hotbarTop, l + hotbarSlot, hotbarTop + hotbarSlot)
         }
 
-        val hx = w - dp(35f)
-        val hy = rsY - stickR - dp(30f)
-        addHud("build", hx - dp(25f), hy - dp(25f), hx + dp(25f), hy + dp(25f))
+        // Кнопка постройки — верх справа
+        val hx = w - dp(40f)
+        val hy = dp(70f)
+        addHud("build", hx - dp(26f), hy - dp(26f), hx + dp(26f), hy + dp(26f))
+
+        // ХП — верх слева под меню
+        hpY = dp(68f)
 
         if (paused) {
-            val bw = min(w - dp(56f), dp(290f))
+            val bw = min(w - dp(60f), dp(340f))
             val cx = w / 2f
-            val by = h * 0.46f
-            addHud("resume", cx - bw / 2f, by, cx + bw / 2f, by + dp(52f))
-            addHud("exit", cx - bw / 2f, by + dp(64f), cx + bw / 2f, by + dp(116f))
+            val by = h * 0.44f
+            addHud("resume", cx - bw / 2f, by, cx + bw / 2f, by + dp(56f))
+            addHud("exit", cx - bw / 2f, by + dp(68f), cx + bw / 2f, by + dp(124f))
         }
         if (dead) {
-            val bw = min(w - dp(56f), dp(290f))
+            val bw = min(w - dp(60f), dp(340f))
             val cx = w / 2f
-            val by = h * 0.52f
-            addHud("respawn", cx - bw / 2f, by, cx + bw / 2f, by + dp(52f))
-            addHud("dead_exit", cx - bw / 2f, by + dp(64f), cx + bw / 2f, by + dp(116f))
+            val by = h * 0.50f
+            addHud("respawn", cx - bw / 2f, by, cx + bw / 2f, by + dp(56f))
+            addHud("dead_exit", cx - bw / 2f, by + dp(68f), cx + bw / 2f, by + dp(124f))
         }
     }
 
@@ -941,30 +950,32 @@ class GameView(context: Context, private val store: Store) : View(context) {
         val widthF = width.toFloat()
         val heightF = height.toFloat()
 
-        // кнопка меню
+        // кнопка меню — верх слева
         p.color = 0x990C0708.toInt()
-        c.drawCircle(dp(32f), dp(32f) + insTop, dp(21f), p)
+        c.drawCircle(dp(32f), dp(32f), dp(21f), p)
         p.style = Paint.Style.STROKE
         p.strokeWidth = dp(2f)
         p.color = 0x55FFFFFF
-        c.drawCircle(dp(32f), dp(32f) + insTop, dp(21f), p)
+        c.drawCircle(dp(32f), dp(32f), dp(21f), p)
         p.style = Paint.Style.FILL
         p.color = TEXT
-        c.drawRoundRect(dp(24f), dp(25f) + insTop, dp(40f), dp(29f) + insTop, 2f, 2f, p)
-        c.drawRoundRect(dp(24f), dp(32f) + insTop, dp(40f), dp(36f) + insTop, 2f, 2f, p)
-        c.drawRoundRect(dp(24f), dp(39f) + insTop, dp(40f), dp(43f) + insTop, 2f, 2f, p)
+        c.drawRoundRect(dp(24f), dp(25f), dp(40f), dp(29f), 2f, 2f, p)
+        c.drawRoundRect(dp(24f), dp(32f), dp(40f), dp(36f), 2f, 2f, p)
+        c.drawRoundRect(dp(24f), dp(39f), dp(40f), dp(43f), 2f, 2f, p)
 
-        // монеты сверху
+        // монеты — верх справа
         val pillW = dp(122f)
-        val pillTop = dp(12f) + insTop
-        panel(c, widthF / 2f - pillW / 2f, pillTop, widthF / 2f + pillW / 2f, pillTop + dp(34f), dp(17f), 0xCC1C1214.toInt(), STROKE)
-        Art.coin(c, widthF / 2f - pillW / 2f + dp(20f), pillTop + dp(17f), dp(11f), p)
-        txt(fmt(store.coins), widthF / 2f + pillW / 2f - dp(14f), pillTop + dp(22f), dp(15f), GOLD, true, Paint.Align.RIGHT)
+        val pillTop = dp(12f)
+        val pillRight = widthF - dp(12f)
+        panel(c, pillRight - pillW, pillTop, pillRight, pillTop + dp(34f), dp(17f), 0xCC1C1214.toInt(), STROKE)
+        Art.coin(c, pillRight - pillW + dp(20f), pillTop + dp(17f), dp(11f), p)
+        txt(fmt(store.coins), pillRight - dp(14f), pillTop + dp(22f), dp(15f), GOLD, true, Paint.Align.RIGHT)
 
+        // лидерборд — верх справа под монетами
         drawLeaderboard(c, w)
 
-        // килл-фид
-        var fy = dp(58f) + insTop
+        // килл-фид — низ слева
+        var fy = heightF - dp(100f)
         val now = System.currentTimeMillis()
         val fi = feed.iterator()
         while (fi.hasNext()) if (now - fi.next().at > 6500L) fi.remove()
@@ -983,31 +994,31 @@ class GameView(context: Context, private val store: Store) : View(context) {
         }
         pt.alpha = 255
 
-        // хп и броня
-        val hpW = min(dp(190f), widthF * 0.54f)
-        val hx = widthF / 2f - hpW / 2f
+        // хп и броня — верх слева под меню
+        val hpW = min(dp(200f), widthF * 0.30f)
+        val hx = dp(18f)
         panel(c, hx, hpY, hx + hpW, hpY + dp(12f), dp(6f), 0xAA000000.toInt(), STROKE)
         val frac = (w.me.hp / 100f).coerceIn(0f, 1f)
         p.color = if (frac > 0.5f) GREEN else if (frac > 0.25f) 0xFFE0A33A.toInt() else RED
         c.drawRoundRect(hx + dp(2f), hpY + dp(2f), hx + (hpW - dp(2f)) * frac, hpY + dp(10f), dp(4f), dp(4f), p)
-        txt("${w.me.hp.toInt()}", widthF / 2f, hpY + dp(10f), dp(10f), 0xFFFFFFFF.toInt(), true, Paint.Align.CENTER)
+        txt("${w.me.hp.toInt()}", hx + hpW + dp(6f), hpY + dp(10f), dp(10f), 0xFFFFFFFF.toInt(), true, Paint.Align.LEFT)
         if (w.me.armor > 0f) {
-            panel(c, hx, hpY + dp(13f), hx + hpW, hpY + dp(19f), dp(3f), 0xAA000000.toInt(), 0)
+            panel(c, hx, hpY + dp(15f), hx + hpW, hpY + dp(21f), dp(3f), 0xAA000000.toInt(), 0)
             p.color = 0xFF6FC2F0.toInt()
-            c.drawRoundRect(hx + dp(1f), hpY + dp(14f), hx + dp(1f) + (hpW - dp(2f)) * (w.me.armor / 100f).coerceIn(0f, 1f), hpY + dp(18f), dp(2f), dp(2f), p)
+            c.drawRoundRect(hx + dp(1f), hpY + dp(16f), hx + dp(1f) + (hpW - dp(2f)) * (w.me.armor / 100f).coerceIn(0f, 1f), hpY + dp(20f), dp(2f), dp(2f), p)
+            txt("броня ${w.me.armor.toInt()}", hx + hpW + dp(6f), hpY + dp(20f), dp(9f), 0xFF6FC2F0.toInt(), true, Paint.Align.LEFT)
         }
 
-        // ресурсы
-        val resGap = dp(5f)
-        val resW = (widthF - dp(16f) - resGap * 3f) / 4f
-        val resLeft = (widthF - (resW * 4f + resGap * 3f)) / 2f
-        val resY = hpY - dp(32f)
-        drawResPill(c, resLeft, resLeft + resW, resY, w.me.wood, 0)
-        drawResPill(c, resLeft + resW + resGap, resLeft + resW * 2f + resGap, resY, w.me.stone, 1)
-        drawResPill(c, resLeft + (resW + resGap) * 2f, resLeft + resW * 3f + resGap * 2f, resY, w.me.iron, 2)
-        drawResPill(c, resLeft + (resW + resGap) * 3f, resLeft + resW * 4f + resGap * 3f, resY, w.me.sulfur, 3)
+        // ресурсы — вертикальная колонка слева под хп
+        val resX = dp(18f)
+        val resW = dp(130f)
+        val resY = hpY + dp(26f)
+        drawResPill(c, resX, resX + resW, resY, w.me.wood, 0)
+        drawResPill(c, resX, resX + resW, resY + dp(26f), w.me.stone, 1)
+        drawResPill(c, resX, resX + resW, resY + dp(52f), w.me.iron, 2)
+        drawResPill(c, resX, resX + resW, resY + dp(78f), w.me.sulfur, 3)
 
-        // хотбар
+        // хотбар — низ中心
         for (i in 0 until World.WEAPONS.size) {
             if (i >= slotRects.size) break
             val r = slotRects[i]
@@ -1043,7 +1054,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
             widthF / 2f, hotbarTop - dp(7f), dp(9.5f), DIM, true, Paint.Align.CENTER
         )
 
-        // джойстики
+        // джойстики — низ слева и справа
         drawStick(c, lsX, lsY, leftKnob, leftPointer >= 0, ACCENT)
         drawStick(c, rsX, rsY, rightKnob, rightPointer >= 0, GOLD)
 
@@ -1070,8 +1081,8 @@ class GameView(context: Context, private val store: Store) : View(context) {
     }
 
     private fun drawHammer(c: Canvas, w: World) {
-        val cx = width - dp(35f)
-        val cy = rsY - stickR - dp(30f)
+        val cx = width - dp(40f)
+        val cy = dp(70f)
         p.style = Paint.Style.FILL
         p.color = if (buildOpen) 0xEE2A1818.toInt() else 0xCC160E0F.toInt()
         c.drawCircle(cx, cy, dp(23f), p)
@@ -1875,6 +1886,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
                 w.me.coins = store.coins
                 w.me.toolLevel = store.toolLevel
                 w.me.weaponSkin = store.selectedWeaponSkin
+                w.me.weapon = 0
                 dead = false
                 paused = false
                 buildOpen = false
