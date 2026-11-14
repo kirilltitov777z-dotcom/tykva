@@ -16,7 +16,7 @@ import java.util.TimeZone
  */
 
 const val APP_VERSION = "1.1"
-const val APP_TITLE = "ТЫКВА"
+const val APP_TITLE = "GHOUL"
 
 data class Skin(
     val name: String,

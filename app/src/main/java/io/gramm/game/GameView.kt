@@ -1305,8 +1305,8 @@ class GameView(context: Context, private val store: Store) : View(context) {
         drawUpdateBanner(c)
 
         val tSize = min(dp(50f), w * 0.145f)
-        txt("ТЫКВА", w / 2f, h * 0.235f + dp(2f), tSize, 0x66000000, true, Paint.Align.CENTER)
-        txt("ТЫКВА", w / 2f, h * 0.235f, tSize, ACCENT, true, Paint.Align.CENTER)
+        txt("GHOUL", w / 2f, h * 0.235f + dp(2f), tSize, 0x66000000, true, Paint.Align.CENTER)
+        txt("GHOUL", w / 2f, h * 0.235f, tSize, ACCENT, true, Paint.Align.CENTER)
         txt("ХЭЛЛОУИН · ВЫЖИВАНИЕ · ОНЛАЙН", w / 2f, h * 0.235f + dp(22f), dp(10f), GOLD, true, Paint.Align.CENTER)
 
         val charY = h * 0.42f
@@ -1352,7 +1352,7 @@ class GameView(context: Context, private val store: Store) : View(context) {
         p.color = if (net.connected) GREEN else 0xFFFF8A5C.toInt()
         c.drawCircle(dp(18f), h - dp(22f), dp(3.5f), p)
         txt(if (net.connected) "онлайн" else "офлайн", dp(26f), h - dp(18f), dp(9.5f), DIM, false)
-        txt("ТЫКВА $APP_VERSION", w - dp(16f), h - dp(18f), dp(9.5f), DIM, false, Paint.Align.RIGHT)
+        txt("GHOUL $APP_VERSION", w - dp(16f), h - dp(18f), dp(9.5f), DIM, false, Paint.Align.RIGHT)
     }
 
     private fun drawUpdateBanner(c: Canvas) {

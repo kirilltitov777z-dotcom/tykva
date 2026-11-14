@@ -30,7 +30,7 @@ class CrashActivity : Activity() {
         root.setPadding(dp(16f), dp(24f), dp(16f), dp(16f))
 
         val title = TextView(this)
-        title.text = "ТЫКВА сломалась"
+        title.text = "GHOUL сломалась"
         title.setTextColor(0xFFFF6B2C.toInt())
         title.textSize = 24f
         title.typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
@@ -88,7 +88,7 @@ class CrashActivity : Activity() {
         root.addView(close, xlp)
 
         val note = TextView(this)
-        note.text = "ТЫКВА $APP_VERSION · аварийный экран"
+        note.text = "GHOUL $APP_VERSION · аварийный экран"
         note.setTextColor(0xFF7A5F55.toInt())
         note.textSize = 9f
         note.gravity = Gravity.CENTER

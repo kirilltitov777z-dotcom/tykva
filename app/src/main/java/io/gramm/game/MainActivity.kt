@@ -61,7 +61,7 @@ class MainActivity : Activity() {
                 val sw = java.io.StringWriter()
                 e.printStackTrace(java.io.PrintWriter(sw))
                 val i = Intent(this, CrashActivity::class.java)
-                i.putExtra("trace", "ТЫКВА $APP_VERSION\n$sw")
+                i.putExtra("trace", "GHOUL $APP_VERSION\n$sw")
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 startActivity(i)
             } catch (_: Exception) {
@@ -93,7 +93,6 @@ class MainActivity : Activity() {
     private fun showLogin() {
         game?.destroy()
         game = null
-        hideBars()
 
         val root = FrameLayout(this)
         root.addView(AuthBg(this), FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
@@ -113,7 +112,7 @@ class MainActivity : Activity() {
         logoLp.gravity = Gravity.CENTER_HORIZONTAL
         outer.addView(logo, logoLp)
 
-        val title = label("ТЫКВА", 44f, fg, true)
+        val title = label("GHOUL", 44f, fg, true)
         title.gravity = Gravity.CENTER
         title.setPadding(0, dp(8f), 0, 0)
         outer.addView(title)
@@ -277,7 +276,7 @@ class MainActivity : Activity() {
         val boxLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         outer.addView(box, boxLp)
 
-        val footer = label("ТЫКВА $APP_VERSION · хэллоуин-сезон · сделано на телефоне", 9f, 0xFF7A5F55.toInt(), false)
+        val footer = label("GHOUL $APP_VERSION · хэллоуин-сезон · сделано на телефоне", 9f, 0xFF7A5F55.toInt(), false)
         footer.gravity = Gravity.CENTER
         footer.setPadding(0, dp(18f), 0, 0)
         outer.addView(footer)
@@ -285,6 +284,7 @@ class MainActivity : Activity() {
         scroll.addView(outer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
         root.addView(scroll, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(root)
+        hideBars()
         login.requestFocus()
     }
 
@@ -303,7 +303,8 @@ class MainActivity : Activity() {
     private fun hideBars() {
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let {
+            val ic = window.decorView?.getWindowInsetsController()
+            ic?.let {
                 it.hide(WindowInsets.Type.systemBars())
                 it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }

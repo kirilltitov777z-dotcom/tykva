@@ -61,7 +61,7 @@ object Updater {
     fun download(context: Context, url: String, version: String): Long {
         val name = "tykva-$version.apk"
         val req = DownloadManager.Request(Uri.parse(url))
-            .setTitle("ТЫКВА $version")
+            .setTitle("GHOUL $version")
             .setDescription("Скачивание обновления")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
